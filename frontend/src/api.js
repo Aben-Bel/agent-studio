@@ -118,11 +118,12 @@ export async function createAgent(agent) {
 
 // Streams orchestrator events. Pass chat_id to keep a stateful, resumable
 // session (memory + human-in-the-loop). onEvent is called for each {type, data}.
-export async function runChat({ agent, message, history, chat_id }, onEvent) {
+export async function runChat({ agent, message, history, chat_id, agents, allow_tools, sources }, onEvent, signal) {
   const res = await fetch(`${BASE}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, message, history: history || [], chat_id }),
+    body: JSON.stringify({ agent, message, history: history || [], chat_id, agents, allow_tools, sources }),
+    signal,
   });
   const reader = res.body.getReader();
   const dec = new TextDecoder();

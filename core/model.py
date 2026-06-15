@@ -71,6 +71,11 @@ def _mock_args(spec, user_text):
     required = schema.get("required", list(props.keys()))
     args = {}
     for p in required:
+        if p == "agent":                       # consult_agent -> recruit a real specialist
+            from .registry import AGENTS
+            specialists = [n for n, a in AGENTS.all().items() if "consult_agent" not in (a.tools or [])]
+            args[p] = specialists[0] if specialists else ""
+            continue
         typ = (props.get(p) or {}).get("type", "string")
         args[p] = user_text[:120] if typ == "string" else (0 if typ in ("integer", "number") else "")
     return args
@@ -87,7 +92,7 @@ def _bedrock(messages, functions, system):
     client = boto3.client("bedrock-runtime", region_name=cfg.region)
     bm = _to_bedrock_messages(messages)
     kwargs = {"modelId": cfg.model_id, "messages": bm,
-              "inferenceConfig": {"maxTokens": 600, "temperature": 0.5}}
+              "inferenceConfig": {"maxTokens": 2000, "temperature": 0.4}}
     if system:
         kwargs["system"] = [{"text": system}]
     if functions:
@@ -110,27 +115,31 @@ def _bedrock(messages, functions, system):
 
 
 def _to_bedrock_messages(messages):
-    bm = []
+    """Convert neutral history to Bedrock Converse messages. Bedrock requires
+    strictly ALTERNATING user/assistant turns, so we coalesce any consecutive
+    same-role messages into one (merging their content blocks). This is what lets
+    a multi-turn investigation be RESUMED: a tool result (user role) immediately
+    followed by the user's reply, or a turn that ended mid-tool-round, no longer
+    produces two consecutive user turns (which Converse 400s on)."""
+    seq = []   # (bedrock_role, [content blocks])
     for m in messages:
         role = m.get("role")
         if role == "user":
-            bm.append({"role": "user", "content": [{"text": m["content"]}]})
+            seq.append(("user", [{"text": m.get("content") or "(empty)"}]))
         elif role == "assistant" and m.get("tool_calls"):
-            bm.append({"role": "assistant", "content": [
+            seq.append(("assistant", [
                 {"toolUse": {"toolUseId": c["id"], "name": c["name"],
-                             "input": c["arguments"]}} for c in m["tool_calls"]]})
+                             "input": c.get("arguments", {})}} for c in m["tool_calls"]]))
         elif role == "assistant":
-            bm.append({"role": "assistant", "content": [{"text": m.get("content", "")}]})
+            seq.append(("assistant", [{"text": (m.get("content") or "").strip() or "(no content)"}]))
         elif role == "tool":
-            block = {"toolResult": {"toolUseId": m["tool_call_id"],
-                                    "content": [{"text": m["content"]}]}}
-            # Bedrock requires every toolResult for a single assistant turn to
-            # live in ONE user message. When the model calls multiple tools at
-            # once, append to the existing toolResult turn instead of starting a
-            # new one (otherwise Converse 400s: "Expected toolResult blocks...").
-            if bm and bm[-1]["role"] == "user" \
-                    and all("toolResult" in b for b in bm[-1]["content"]):
-                bm[-1]["content"].append(block)
-            else:
-                bm.append({"role": "user", "content": [block]})
+            seq.append(("user", [{"toolResult": {"toolUseId": m["tool_call_id"],
+                                                 "content": [{"text": m.get("content") or "(empty)"}]}}]))
+
+    bm = []
+    for role, blocks in seq:
+        if bm and bm[-1]["role"] == role:
+            bm[-1]["content"].extend(blocks)   # merge consecutive same-role turns
+        else:
+            bm.append({"role": role, "content": list(blocks)})
     return bm

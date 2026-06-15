@@ -20,7 +20,10 @@ def run(req: RunRequest):
     for human input (a `needs_human` event), and continues where it left off when
     you POST again with the same `chat_id`. Without a `chat_id` it runs once."""
     def gen():
-        if req.chat_id:
+        if req.agent == "team" or req.agents:
+            stream = orchestrator.run_team(req.chat_id or "team", req.message,
+                                           req.agents, req.allow_tools, req.sources)
+        elif req.chat_id:
             stream = orchestrator.start_or_resume(req.chat_id, req.agent, req.message)
         else:
             stream = orchestrator.run(req.agent, req.message, req.history)

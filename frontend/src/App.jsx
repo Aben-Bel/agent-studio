@@ -3,69 +3,61 @@ import Dashboard from "./components/Dashboard.jsx";
 import DataStep from "./components/DataStep.jsx";
 import AgentBuilder from "./components/AgentBuilder.jsx";
 import ChatPanel from "./components/ChatPanel.jsx";
-import { getCapabilities, getRun } from "./api.js";
+import { getCapabilities } from "./api.js";
 
-// ---- URL as navigation state (refresh / back / deep-link restore the view) ----
+// ---- URL is the source of navigation state. Back/forward/refresh/deep-link all
+// restore the exact view. State changes push a history entry; popstate reads it back.
 function readUrl() {
   const p = new URLSearchParams(location.search);
   return {
     admin: p.get("admin") === "1",
     view: p.get("view") || "overview",
-    agent: p.get("agent") || "rca_assistant",
+    agents: (p.get("agents") || "").split(",").filter(Boolean),
     chat: p.get("chat") || "",
-    run: p.get("run") || "",
   };
 }
-function writeUrl(s) {
+function urlFor(s) {
   const p = new URLSearchParams();
   if (s.admin) p.set("admin", "1");
   p.set("view", s.view);
-  p.set("agent", s.agent);
+  if (s.agents && s.agents.length) p.set("agents", s.agents.join(","));
   if (s.chat) p.set("chat", s.chat);
-  if (s.run) p.set("run", s.run);
-  history.replaceState(null, "", "?" + p.toString());
+  return "?" + p.toString();
 }
 const newChatId = () =>
   crypto.randomUUID ? crypto.randomUUID() : "inv-" + Math.floor(performance.now());
 
 export default function App() {
-  const init = readUrl();
-  const [admin, setAdmin] = useState(init.admin);
-  const [view, setView] = useState(init.view);
-  const [agent, setAgent] = useState(init.agent);
-  const [chat, setChat] = useState(init.chat || newChatId());
-  const [run, setRun] = useState(init.run);
+  const [nav, setNav] = useState(() => {
+    const init = readUrl();
+    return { ...init, chat: init.chat || newChatId() };
+  });
   const [caps, setCaps] = useState({ agents: [], tools: [], skills: [], mcp: [], stages: [] });
 
+  useEffect(() => { getCapabilities().then(setCaps).catch(() => {}); }, [nav.view]);
   useEffect(() => {
-    getCapabilities().then(setCaps).catch(() => {});
-  }, [view]);
-  useEffect(() => {
-    writeUrl({ admin, view, agent, chat, run });
-  }, [admin, view, agent, chat, run]);
+    const onPop = () => setNav((n) => ({ ...n, ...readUrl() }));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
+  function goTo(partial) {
+    setNav((n) => {
+      const next = { ...n, ...partial };
+      history.pushState(null, "", urlFor(next));
+      return next;
+    });
+  }
+  const go = (view) => goTo({ view });
+  const newInvestigation = (name) =>
+    goTo({ view: "investigate", chat: newChatId(), agents: name && name !== "team" ? [name] : [] });
+  const openRun = (chatId) => goTo({ view: "investigate", chat: chatId, agents: [] });
+
+  const { admin, view, agents, chat } = nav;
   const TABS = [
-    ["overview", "Overview"],
-    ["data", "Data sources"],
-    ["investigate", "Investigate"],
-    ["capabilities", "Capabilities"],
-    ...(admin ? [["agent", "Build agent"]] : []),
+    ["overview", "Overview"], ["data", "Data sources"], ["investigate", "Investigate"],
+    ["capabilities", "Capabilities"], ...(admin ? [["agent", "Build agent"]] : []),
   ];
-
-  function go(v) {
-    setRun("");
-    setView(v);
-  }
-  function newInvestigation(name) {
-    if (name) setAgent(name);
-    setChat(newChatId());
-    setRun("");
-    setView("investigate");
-  }
-  function openRun(chatId) {
-    setRun(chatId);
-    setView("trace");
-  }
 
   return (
     <div className="app">
@@ -75,12 +67,10 @@ export default function App() {
           <span className="sub">Root-Cause Analysis Platform · full visibility</span>
         </div>
         <div className="head-right">
-          <button className="ghost" onClick={() => newInvestigation()}>New investigation</button>
+          <button className="ghost" onClick={() => newInvestigation("team")}>New investigation</button>
           <label className="godswitch" title="Show configuration / agent building">
-            <input type="checkbox" checked={admin} onChange={(e) => {
-              setAdmin(e.target.checked);
-              if (!e.target.checked && view === "agent") setView("overview");
-            }} />
+            <input type="checkbox" checked={admin} onChange={(e) =>
+              goTo({ admin: e.target.checked, view: !e.target.checked && view === "agent" ? "overview" : view })} />
             <span className="slider" />
             <span className="godlabel">Admin</span>
           </label>
@@ -89,36 +79,33 @@ export default function App() {
 
       <nav className="tabs">
         {TABS.map(([key, label]) => (
-          <button key={key} className={"pill" + (view === key ? " on" : "")} onClick={() => go(key)}>
-            {label}
-          </button>
+          <button key={key} className={"pill" + (view === key ? " on" : "")} onClick={() => go(key)}>{label}</button>
         ))}
       </nav>
 
       <main>
-        {view === "overview" && <Dashboard caps={caps} onGo={go} onOpenRun={openRun} />}
+        {view === "overview" && <Dashboard caps={caps} onGo={go} onOpenRun={openRun} onPickAgent={newInvestigation} />}
         {view === "data" && <DataStep />}
-        {view === "capabilities" && <CapabilitiesView caps={caps} />}
+        {view === "capabilities" && <CapabilitiesView caps={caps} onPickAgent={newInvestigation} />}
         {view === "investigate" && (
-          <ChatPanel agentName={agent} chatId={chat} onBack={() => go("overview")} />
+          <ChatPanel key={chat} caps={caps} chatId={chat} initialAgents={agents} onBack={() => go("overview")} />
         )}
         {view === "agent" && admin && (
           <div className="card">
             <h2>Build an investigation agent</h2>
             <p className="muted">
-              Write a persona and choose exactly which tools it may use. Registered live and
-              routable immediately — the real RCA reasoning agent will be built on this seam.
+              Write a persona and choose which tools it may use. Registered live and routable
+              immediately — the same seam every specialist agent is built on.
             </p>
             <AgentBuilder caps={caps} advanced onCreated={newInvestigation} />
           </div>
         )}
-        {view === "trace" && <RunTrace chatId={run} onBack={() => go("overview")} />}
       </main>
     </div>
   );
 }
 
-function CapabilitiesView({ caps }) {
+function CapabilitiesView({ caps, onPickAgent }) {
   const Section = ({ title, items, render }) => (
     <div className="capsec">
       <div className="capsec-title">{title} <span className="count">{items.length}</span></div>
@@ -134,9 +121,12 @@ function CapabilitiesView({ caps }) {
         <code>skills/</code>, <code>mcp/</code>, or <code>pipeline/</code> (any subfolder) and it
         shows up here — no shared file to edit, no merge conflicts.
       </p>
-      <Section title="Agents" items={caps.agents} render={(a) => (
-        <div key={a.name} className="capitem"><strong>{a.name}</strong>
-          <span className="muted small"> {a.description}</span></div>
+      <Section title="Agents — click to investigate with one" items={caps.agents} render={(a) => (
+        <div key={a.name} className="capitem agentpick" onClick={() => onPickAgent && onPickAgent(a.name)}>
+          <strong>{a.name}</strong>
+          <span className="muted small"> {a.description}</span>
+          <span className="pickhint">investigate →</span>
+        </div>
       )} />
       <Section title="Tools" items={caps.tools} render={(t) => (
         <div key={t.name} className="capitem">
@@ -160,45 +150,4 @@ function CapabilitiesView({ caps }) {
       )} />
     </div>
   );
-}
-
-function RunTrace({ chatId, onBack }) {
-  const [trace, setTrace] = useState(null);
-  useEffect(() => {
-    getRun(chatId).then(setTrace).catch(() => setTrace({ steps: [] }));
-  }, [chatId]);
-  return (
-    <div className="card">
-      <div className="chat-head">
-        <button onClick={onBack}>← Overview</button>
-        <span className="muted">Investigation trace · <strong>{chatId.slice(0, 8)}</strong></span>
-      </div>
-      {!trace && <div className="muted small">loading…</div>}
-      {trace && trace.steps.length === 0 && <div className="muted small">no steps recorded</div>}
-      <div className="trace">
-        {trace?.steps.map((s) => (
-          <div key={s.seq} className={"ev " + s.type}>
-            <span className="tag">{s.type}</span>
-            <span className="evtext">{traceText(s)}</span>
-            <span className="muted small tracets">{(s.ts || "").replace("T", " ").slice(11, 19)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function traceText(s) {
-  const d = s.data || {};
-  switch (s.type) {
-    case "agent_switch": return `routed to ${d.agent}`;
-    case "user_message": return d.text;
-    case "tool_call": return `${d.name}(${JSON.stringify(d.args || {})})`;
-    case "tool_result": return `${d.name} → ${d.result}`;
-    case "needs_human": return `asked: ${d.question}`;
-    case "context_added": return `context: ${d.text}`;
-    case "final": return d.message;
-    case "error": return d.message;
-    default: return JSON.stringify(d);
-  }
 }

@@ -4,10 +4,13 @@ from typing import Any, Literal, Optional
 
 # ---- API request models (appear in Swagger) ----
 class RunRequest(BaseModel):
-    agent: str = "joker"
+    agent: str = "team"             # "team" = run agents in parallel; or a single agent name
     message: str
     history: list[dict] = []
     chat_id: Optional[str] = None   # set it to keep a stateful, resumable session
+    agents: Optional[list[str]] = None      # team mode: which agents to run in parallel
+    allow_tools: Optional[list[str]] = None  # restrict which tools/skills agents may use
+    sources: Optional[list[str]] = None      # restrict which data sources to use
 
 
 class CreateAgentRequest(BaseModel):
@@ -24,8 +27,8 @@ class ConnectDbRequest(BaseModel):
 
 # ---- Streamed event model (documented even though it flows over SSE) ----
 class Event(BaseModel):
-    type: Literal["agent_switch", "progress", "tool_call", "tool_result",
-                  "needs_human", "context_added", "final", "error"]
+    type: Literal["agent_switch", "progress", "thinking", "tool_call", "tool_result",
+                  "needs_human", "context_added", "user_message", "final", "error"]
     data: dict[str, Any]
 
 

@@ -1,4 +1,6 @@
 import inspect
+import threading
+from queue import Queue
 from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES
 from . import model, pipeline, runs
 from .config import cfg
@@ -28,7 +30,25 @@ def _params_schema(fn):
 # ----------------------------------------------------------------------------
 SESSIONS: dict = {}
 
-HUMAN_TOOL = "ask_human"   # calling this pauses the run for human input
+HUMAN_TOOL = "ask_human"        # calling this pauses the run for human input
+CONSULT_TOOL = "consult_agent"  # calling this recruits another agent (multi-agent)
+
+# House style enforced on EVERY agent + synthesis, centrally. Engineering output:
+# no decoration, every claim referenced, every finding reproducible.
+STYLE = (
+    "OUTPUT RULES (strict, override any other style):\n"
+    "- No emojis. No filler, hype, or flattery. State findings directly.\n"
+    "- Be concise: short sentences, tables/lists over prose.\n"
+    "- Reference every claim: cite the table.column, document name + section, or the "
+    "exact value you used. No unreferenced assertions.\n"
+    "- Be replicable: include the exact SQL, tool name + arguments, or steps so another "
+    "engineer can reproduce the result.\n"
+    "- If something is unknown or a tool is not implemented, say so plainly."
+)
+
+
+def _style(base):
+    return (STYLE + "\n\n" + base) if base else STYLE
 
 
 def capabilities():
@@ -80,9 +100,38 @@ def _dispatch(name, args):
         return f"ERROR in '{name}': {e}"
 
 
+def _run_subagent(parent_sess, sub_name, task):
+    """Recruit and run a specialist agent on a sub-task. Streams the sub-agent's
+    every step (tagged depth=1 so the UI can nest it) and returns its conclusion.
+    Generator: `result = yield from _run_subagent(...)`."""
+    if sub_name not in AGENTS.all() or sub_name == parent_sess["agent"]:
+        return f"Cannot recruit agent '{sub_name}'. Available: " \
+               f"{[n for n in AGENTS.all() if n != parent_sess['agent']]}"
+    agent = AGENTS.get(sub_name)
+    system = _style(agent.fn({}) if callable(agent.fn) else "")
+    sub = {"chat_id": parent_sess.get("chat_id"), "agent": sub_name, "system": system,
+           "msgs": [{"role": "user", "content": task}], "status": "running",
+           "pending": None, "step": 0, "inbox": []}
+    yield {"type": "agent_switch",
+           "data": {"agent": sub_name, "description": agent.description, "role": "recruited",
+                    "by": parent_sess["agent"], "task": task, "depth": 1,
+                    "chat_id": parent_sess.get("chat_id")}}
+    final = ""
+    for ev in _drive(sub):
+        d = dict(ev["data"]); d["depth"] = 1; d["agent_scope"] = sub_name
+        yield {"type": ev["type"], "data": d}
+        if ev["type"] == "final":
+            final = ev["data"].get("message", "")
+    yield {"type": "agent_switch",
+           "data": {"agent": parent_sess["agent"], "role": "resumed",
+                    "description": AGENTS.get(parent_sess["agent"]).description,
+                    "chat_id": parent_sess.get("chat_id")}}
+    return f"[{sub_name}] {final}" if final.strip() else f"[{sub_name}] (no findings)"
+
+
 def _new_session(chat_id, agent_name):
     agent = AGENTS.get(agent_name)
-    system = agent.fn({}) if callable(agent.fn) else ""
+    system = _style(agent.fn({}) if callable(agent.fn) else "")
     sess = {"chat_id": chat_id, "agent": agent_name, "system": system,
             "msgs": [], "status": "idle", "pending": None, "step": 0, "inbox": []}
     SESSIONS[chat_id] = sess
@@ -94,7 +143,8 @@ def _drive(sess):
     (needs_human). Mutates the session as it goes and yields UI events. Re-enter
     it after a human reply to continue from exactly where it stopped."""
     agent = AGENTS.get(sess["agent"])
-    funcs = _specs(agent.tools)
+    allow = sess.get("allow_tools")
+    funcs = _specs([t for t in agent.tools if not allow or t in allow])
     sess["status"] = "running"
 
     while sess["step"] < cfg.max_steps:
@@ -119,24 +169,37 @@ def _drive(sess):
             return
 
         if r.tool_calls:
+            if (r.content or "").strip():     # surface the model's reasoning before it acts
+                yield {"type": "thinking", "data": {"text": r.content}}
             sess["msgs"].append({"role": "assistant", "tool_calls": r.tool_calls})
             for tc in r.tool_calls:
-                kind = "skill" if tc["name"] in SKILLS.all() else "tool"
+                name = tc["name"]
+                kind = ("agent" if name == CONSULT_TOOL
+                        else "skill" if name in SKILLS.all() else "tool")
                 yield {"type": "tool_call",
-                       "data": {"kind": kind, "name": tc["name"], "args": tc["arguments"]}}
+                       "data": {"kind": kind, "name": name, "args": tc["arguments"]}}
 
-                if tc["name"] == HUMAN_TOOL:                 # ---- pause for the human ----
+                if name == HUMAN_TOOL:                       # ---- pause for the human ----
                     q = (tc["arguments"] or {}).get("question") or "The agent needs your input."
-                    sess["pending"] = {"tool_call_id": tc["id"], "name": tc["name"]}
+                    sess["pending"] = {"tool_call_id": tc["id"], "name": name}
                     sess["status"] = "awaiting_human"
                     yield {"type": "needs_human",
                            "data": {"question": q, "chat_id": sess["chat_id"]}}
                     return                                   # suspend; resume on next reply
 
-                result = _dispatch(tc["name"], tc["arguments"])
+                if name == CONSULT_TOOL:                     # ---- recruit another agent ----
+                    args = tc["arguments"] or {}
+                    sub = args.get("agent", "")
+                    task = args.get("task") or args.get("question") or ""
+                    result = yield from _run_subagent(sess, sub, task)
+                else:
+                    result = _dispatch(name, tc["arguments"])
+
+                # Full result flows to the UI + audit trail (the trace truncates for
+                # display but lets you expand to see exactly what happened).
                 yield {"type": "tool_result",
-                       "data": {"kind": kind, "name": tc["name"], "result": result[:400]}}
-                sess["msgs"].append({"role": "tool", "name": tc["name"],
+                       "data": {"kind": kind, "name": name, "result": result}}
+                sess["msgs"].append({"role": "tool", "name": name,
                                      "tool_call_id": tc["id"], "content": result})
             continue
 
@@ -181,6 +244,113 @@ def start_or_resume(chat_id, agent_name, message):
         runs.record(chat_id, ev)
         yield ev
     runs.finish_run(chat_id, sess["status"])
+
+
+def specialist_agents():
+    """Agents meant to be run as a team (everyone except supervisors that recruit)."""
+    return [n for n, a in AGENTS.all().items() if CONSULT_TOOL not in (a.tools or [])]
+
+
+TEAM_SESSIONS: dict = {}   # chat_id -> [{"task", "synthesis"}] for follow-up continuity
+
+
+def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
+    """Run multiple agents IN PARALLEL on the same task, stream their interleaved
+    steps (each tagged with its agent), then synthesize one conclusion. This is the
+    default investigation mode: list the agents, fire them at once, combine.
+    Optionally restrict the tools agents may use and the data sources in scope."""
+    names = [n for n in (agent_names or specialist_agents()) if n in AGENTS.all()]
+    if not names:
+        names = specialist_agents()
+    allow = set(allow_tools) if allow_tools else None
+
+    history = TEAM_SESSIONS.setdefault(chat_id, [])
+    context = ""
+    if history:
+        context = ("Earlier in this investigation:\n" +
+                   "\n".join(f"- Q: {h['task']}\n  Conclusion: {h['synthesis'][:300]}"
+                             for h in history) + "\n\n")
+    scope = ""
+    if sources:
+        scope = f"Use ONLY these data sources / tables: {', '.join(sources)}.\n\n"
+    prompt = context + scope + task
+
+    runs.start_run(chat_id, "team")
+    def emit(ev):
+        runs.record(chat_id, ev)
+        return ev
+
+    yield emit({"type": "user_message", "data": {"text": task}})
+    yield emit({"type": "agent_switch",
+                "data": {"agent": "team", "role": "dispatch", "agents": names, "chat_id": chat_id}})
+
+    q = Queue()
+    results = {}
+
+    def work(name):
+        try:
+            agent = AGENTS.get(name)
+            system = _style(agent.fn({}) if callable(agent.fn) else "")
+            sub = {"chat_id": chat_id, "agent": name, "system": system,
+                   "msgs": [{"role": "user", "content": prompt}], "status": "running",
+                   "pending": None, "step": 0, "inbox": [], "allow_tools": allow}
+            q.put({"type": "agent_switch",
+                   "data": {"agent": name, "role": "working", "depth": 1, "agent_scope": name}})
+            final = ""
+            for ev in _drive(sub):
+                d = dict(ev["data"]); d["agent_scope"] = name; d["depth"] = 1
+                q.put({"type": ev["type"], "data": d})
+                if ev["type"] == "final":
+                    final = ev["data"].get("message", "")
+            results[name] = final
+        except Exception as e:
+            results[name] = f"(error: {e})"
+            q.put({"type": "error", "data": {"agent_scope": name, "depth": 1, "message": str(e)}})
+        finally:
+            q.put({"__done__": name})
+
+    threads = [threading.Thread(target=work, args=(n,), daemon=True) for n in names]
+    for t in threads:
+        t.start()
+    done = 0
+    while done < len(names):
+        item = q.get()
+        if "__done__" in item:
+            done += 1
+            continue
+        yield emit(item)
+    for t in threads:
+        t.join(timeout=1)
+
+    # One agent selected -> return its findings directly; 2+ -> synthesize across them.
+    if len(names) == 1:
+        synthesis = list(results.values())[0] or "(no findings)"
+    else:
+        synthesis = _synthesize(task, results)
+    history.append({"task": task, "synthesis": synthesis})
+    runs.finish_run(chat_id, "done")
+    yield emit({"type": "final", "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True}})
+
+
+def _synthesize(task, results):
+    """Combine the parallel specialists' findings into one conclusion."""
+    findings = "\n\n".join(f"### {n}\n{r}" for n, r in results.items())
+    if cfg.mock_llm:
+        return "# Combined specialist findings\n\n" + findings
+    try:
+        r = model.complete(
+            [{"role": "user", "content":
+              f"Investigation question: {task}\n\nSpecialist findings:\n{findings}\n\n"
+              "Synthesize a concise root-cause conclusion with a recommended countermeasure. "
+              "Cite which specialist found what and the data/document behind each point. "
+              "Use plain markdown."}],
+            [], _style("You are the lead RCA investigator synthesizing your team's parallel findings."))
+        concl = (r.content or "").strip()
+    except Exception as e:
+        concl = ""
+        findings = f"(synthesis model error: {e})\n\n" + findings
+    return ((concl + "\n\n---\n\n## Specialist findings\n\n" + findings)
+            if concl else ("# Specialist findings\n\n" + findings))
 
 
 def add_context(chat_id, text):
@@ -241,7 +411,7 @@ def list_sessions():
 # ----------------------------------------------------------------------------
 def run(agent_name, message, history=None):
     agent = AGENTS.get(agent_name)
-    system = agent.fn({}) if callable(agent.fn) else ""
+    system = _style(agent.fn({}) if callable(agent.fn) else "")
     sess = {"chat_id": None, "agent": agent_name, "system": system,
             "msgs": list(history or []) + [{"role": "user", "content": message}],
             "status": "running", "pending": None, "step": 0, "inbox": []}

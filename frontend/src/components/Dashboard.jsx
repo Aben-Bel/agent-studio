@@ -3,7 +3,7 @@ import { getSources, getProcessStatus, getCapabilities, getRuns } from "../api.j
 
 // Overview = full visibility at a glance: what data is connected, what's been
 // ingested, what the platform can do, and every investigation that has run.
-export default function Dashboard({ caps, onOpenRun, onGo }) {
+export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
   const [sources, setSources] = useState([]);
   const [pipe, setPipe] = useState({ counts: {}, pending: 0, stages: [] });
   const [runs, setRuns] = useState([]);
@@ -40,11 +40,29 @@ export default function Dashboard({ caps, onOpenRun, onGo }) {
         <div>
           <h2>Start a root-cause investigation</h2>
           <p className="muted">
-            Ask about a defect or yield drop. Every step — each tool call, the data and
-            documents it touches — streams live and is recorded.
+            Ask about a defect or yield drop. The lead agent recruits specialists as needed;
+            every step — each tool call, the data and documents it touches — streams live and is recorded.
           </p>
         </div>
         <button className="primary" onClick={() => onGo("investigate")}>New investigation →</button>
+      </div>
+
+      <div className="card">
+        <div className="sources-title">Investigate — run the whole team in parallel, or pick one agent</div>
+        <div className="team">
+          <button className="agentcard team-card" onClick={() => onPickAgent && onPickAgent("team")}>
+            <div className="agentcard-name">⚡ Team (parallel)</div>
+            <div className="agentcard-desc">Fire all specialists at once and synthesize one conclusion. Default mode.</div>
+            <div className="agentcard-tools">{(caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent")).length} specialists</div>
+          </button>
+          {(caps.agents || []).map((a) => (
+            <button key={a.name} className="agentcard" onClick={() => onPickAgent && onPickAgent(a.name)}>
+              <div className="agentcard-name">{a.name}</div>
+              <div className="agentcard-desc">{a.description}</div>
+              <div className="agentcard-tools">{(a.tools || []).length} tools</div>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="dash-cols">
@@ -64,7 +82,7 @@ export default function Dashboard({ caps, onOpenRun, onGo }) {
           <div className="sources-title">Recent investigations</div>
           {runs.length === 0 && <div className="muted small">no runs yet</div>}
           {runs.slice(0, 8).map((r) => (
-            <div key={r.chat_id} className="runrow" onClick={() => onOpenRun(r.chat_id)}>
+            <div key={r.chat_id} className="runrow" onClick={() => onOpenRun(r.chat_id, r.agent)}>
               <span className={"runstatus " + r.status}>{r.status}</span>
               <span className="runagent">{r.agent}</span>
               <span className="runsteps">{r.steps} steps</span>
