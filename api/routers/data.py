@@ -91,6 +91,21 @@ def sources():
     return {"sources": datastore.list_sources()}
 
 
+@router.get("/sources/{source}/{table}/preview")
+def preview_table(source: str, table: str, limit: int = 50):
+    """Preview rows of a table so the UI can let the user inspect a data source.
+    Read-only; the table name is validated to a safe identifier."""
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9_]+", table or ""):
+        return {"error": "invalid table name", "columns": [], "rows": []}
+    limit = max(1, min(int(limit or 50), 500))
+    try:
+        cols, rows = datastore.run_sql(f'select * from "{table}" limit {limit}', source=source)
+        return {"source": source, "table": table, "columns": cols, "rows": rows}
+    except Exception as e:
+        return {"error": str(e), "columns": [], "rows": []}
+
+
 @router.post("/process")
 def process():
     """Run the ingestion pipeline over any pending uploads (the sweep). Idempotent."""

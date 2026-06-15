@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TraceLanes } from "./Trace.jsx";
-import { runChat, addContext, getRun, getSources, uploadFiles, connectDb } from "../api.js";
+import Modal from "./Modal.jsx";
+import AddAgentModal from "./AddAgentModal.jsx";
+import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable } from "../api.js";
 
 const Md = ({ children }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ""}</ReactMarkdown></div>
@@ -12,7 +14,7 @@ const Md = ({ children }) => (
 // conversation in the middle, the orchestrator trace on the right. The trace is
 // kept PER TURN so previous turns are never wiped on a reply. One input: while it
 // works your text is ADDED CONTEXT, once it is done it is a REPLY.
-export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) {
+export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, refreshCaps }) {
   const specialists = (caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent"));
   const allTools = [...(caps.tools || []), ...(caps.skills || [])];
 
@@ -22,6 +24,10 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
   const [srcOn, setSrcOn] = useState(null);     // null = all
   const [adding, setAdding] = useState(false);
   const [dbUrl, setDbUrl] = useState("");
+  const [uploads, setUploads] = useState([]);   // per-file upload feedback
+  const [showAddAgent, setShowAddAgent] = useState(false);
+  const [inspect, setInspect] = useState(null); // source being inspected
+  const [preview, setPreview] = useState(null); // {table, columns, rows, loading, error}
 
   const [messages, setMessages] = useState([]);
   const [turns, setTurns] = useState([]);       // [{question, events:[]}] - one per turn, never wiped
@@ -97,13 +103,47 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
     setSrcOn(next.length === sources.length ? null : next);
   }
 
+  function describeResult(x) {
+    if (!x) return { status: "error", detail: "no response" };
+    if (x.kind === "dataset") return { status: "done", detail: `table ${x.table}, ${x.rows} rows` };
+    if (x.kind === "document") return { status: "done", detail: `indexed, ${x.chars} chars` };
+    if (x.kind === "error" || x.kind === "skipped") return { status: "error", detail: x.reason || x.kind };
+    return { status: "done", detail: "uploaded" };
+  }
   async function addFiles(e) {
     const files = Array.from(e.target.files); if (!files.length) return;
-    setAdding(true); await uploadFiles(files).catch(() => {}); await loadSources(); setAdding(false); e.target.value = "";
+    setUploads(files.map((f) => ({ name: f.name, status: "processing", detail: "uploading and processing..." })));
+    try {
+      const r = await uploadFiles(files);
+      const byName = {}; (r.results || []).forEach((x) => { byName[x.name] = x; });
+      setUploads(files.map((f) => ({ name: f.name, ...describeResult(byName[f.name]) })));
+      await loadSources();
+    } catch (err) {
+      setUploads(files.map((f) => ({ name: f.name, status: "error", detail: String(err) })));
+    }
+    e.target.value = "";
   }
   async function addDb() {
     if (!dbUrl.trim()) return;
-    setAdding(true); await connectDb(dbUrl.trim()).catch(() => {}); setDbUrl(""); await loadSources(); setAdding(false);
+    setAdding(true); const r = await connectDb(dbUrl.trim()).catch(() => ({ connected: false }));
+    setUploads([{ name: dbUrl.trim().slice(0, 40), status: r.connected ? "done" : "error",
+      detail: r.connected ? `connected ${r.name} (${r.dialect}), ${r.tables?.length || 0} tables` : (r.error || "could not connect") }]);
+    setDbUrl(""); await loadSources(); setAdding(false);
+  }
+
+  async function openInspect(s) {
+    setInspect(s);
+    if (s.tables?.length) loadPreview(s.name, s.tables[0]); else setPreview(null);
+  }
+  async function loadPreview(source, table) {
+    setPreview({ table, loading: true });
+    const r = await previewTable(source, table).catch((e) => ({ error: String(e) }));
+    setPreview({ table, columns: r.columns || [], rows: r.rows || [], error: r.error });
+  }
+  async function onAgentCreated(nm) {
+    setShowAddAgent(false);
+    if (refreshCaps) await refreshCaps();
+    setAgents((a) => (a.includes(nm) ? a : [...a, nm]));
   }
 
   function appendEvent(ev) {
@@ -180,7 +220,9 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
         {setupOpen && (
         <aside className="setup">
           <div className="setup-sec">
-            <div className="setup-title">Agents <span className="muted small">{agents.length}/{specialists.length}</span></div>
+            <div className="setup-title">Agents <span className="muted small">{agents.length}/{specialists.length}</span>
+              <button className="mini" onClick={() => setShowAddAgent(true)}>+ agent</button>
+            </div>
             {specialists.map((a) => (
               <label key={a.name} className="check" title={a.description}>
                 <input type="checkbox" checked={agents.includes(a.name)} onChange={() => toggle(agents, setAgents, a.name)} />
@@ -202,12 +244,25 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
                 </div>
               </div>
             )}
+            {uploads.length > 0 && (
+              <div className="uploads">
+                {uploads.map((u, i) => (
+                  <div key={i} className={"uprow " + u.status}>
+                    {u.status === "processing" && <span className="spin" />}
+                    <span className="upname" title={u.name}>{u.name}</span>
+                    <span className="updetail">{u.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             {sources.length === 0 && <div className="muted small">none</div>}
             {sources.map((s) => (
-              <label key={s.name} className="check" title={(s.tables || []).join(", ")}>
+              <div key={s.name} className="srcrow">
                 <input type="checkbox" checked={sourceOn(s.name)} onChange={() => toggleSource(s.name)} />
-                <span>{s.name} <span className="muted small">{(s.tables || []).length}t</span></span>
-              </label>
+                <button className="srclink" onClick={() => openInspect(s)} title="inspect this source">
+                  {s.name} <span className="muted small">{(s.tables || []).length}t</span>
+                </button>
+              </div>
             ))}
           </div>
 
@@ -260,6 +315,30 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
         </aside>
         )}
       </div>
+
+      {showAddAgent && <AddAgentModal caps={caps} onClose={() => setShowAddAgent(false)} onCreated={onAgentCreated} />}
+
+      {inspect && (
+        <Modal title={`Source: ${inspect.name} (${inspect.dialect})`} wide onClose={() => { setInspect(null); setPreview(null); }}>
+          <div className="inspect-tabs">
+            {(inspect.tables || []).map((t) => (
+              <button key={t} className={"chip" + (preview?.table === t ? " on" : "")} onClick={() => loadPreview(inspect.name, t)}>{t}</button>
+            ))}
+            {(!inspect.tables || !inspect.tables.length) && <span className="muted small">no tables in this source</span>}
+          </div>
+          {preview?.loading && <div className="muted small">loading...</div>}
+          {preview?.error && <div className="warn small">{preview.error}</div>}
+          {preview && !preview.loading && !preview.error && (
+            <div className="preview-wrap">
+              <table className="preview-table">
+                <thead><tr>{preview.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+                <tbody>{preview.rows.map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j}>{v === null ? "" : String(v)}</td>)}</tr>)}</tbody>
+              </table>
+              <div className="muted small">showing {preview.rows.length} rows (max 50)</div>
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

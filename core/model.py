@@ -92,7 +92,7 @@ def _bedrock(messages, functions, system):
     client = boto3.client("bedrock-runtime", region_name=cfg.region)
     bm = _to_bedrock_messages(messages)
     kwargs = {"modelId": cfg.model_id, "messages": bm,
-              "inferenceConfig": {"maxTokens": 2000, "temperature": 0.4}}
+              "inferenceConfig": {"maxTokens": 1100, "temperature": 0.3}}
     if system:
         kwargs["system"] = [{"text": system}]
     if functions:

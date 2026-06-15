@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import Dashboard from "./components/Dashboard.jsx";
 import DataStep from "./components/DataStep.jsx";
-import AgentBuilder from "./components/AgentBuilder.jsx";
 import ChatPanel from "./components/ChatPanel.jsx";
 import { getCapabilities } from "./api.js";
 
@@ -10,7 +9,6 @@ import { getCapabilities } from "./api.js";
 function readUrl() {
   const p = new URLSearchParams(location.search);
   return {
-    admin: p.get("admin") === "1",
     view: p.get("view") || "overview",
     agents: (p.get("agents") || "").split(",").filter(Boolean),
     chat: p.get("chat") || "",
@@ -18,7 +16,6 @@ function readUrl() {
 }
 function urlFor(s) {
   const p = new URLSearchParams();
-  if (s.admin) p.set("admin", "1");
   p.set("view", s.view);
   if (s.agents && s.agents.length) p.set("agents", s.agents.join(","));
   if (s.chat) p.set("chat", s.chat);
@@ -33,8 +30,9 @@ export default function App() {
     return { ...init, chat: init.chat || newChatId() };
   });
   const [caps, setCaps] = useState({ agents: [], tools: [], skills: [], mcp: [], stages: [] });
+  const refreshCaps = () => getCapabilities().then(setCaps).catch(() => {});
 
-  useEffect(() => { getCapabilities().then(setCaps).catch(() => {}); }, [nav.view]);
+  useEffect(() => { refreshCaps(); }, [nav.view]); // eslint-disable-line
   useEffect(() => {
     const onPop = () => setNav((n) => ({ ...n, ...readUrl() }));
     window.addEventListener("popstate", onPop);
@@ -53,11 +51,8 @@ export default function App() {
     goTo({ view: "investigate", chat: newChatId(), agents: name && name !== "team" ? [name] : [] });
   const openRun = (chatId) => goTo({ view: "investigate", chat: chatId, agents: [] });
 
-  const { admin, view, agents, chat } = nav;
-  const TABS = [
-    ["overview", "Overview"], ["data", "Data sources"], ["investigate", "Investigate"],
-    ...(admin ? [["agent", "Build agent"]] : []),
-  ];
+  const { view, agents, chat } = nav;
+  const TABS = [["overview", "Overview"], ["data", "Data sources"], ["investigate", "Investigate"]];
 
   return (
     <div className={"app" + (view === "investigate" ? " app-wide" : "")}>
@@ -68,12 +63,6 @@ export default function App() {
         </div>
         <div className="head-right">
           <button className="ghost" onClick={() => newInvestigation("team")}>New investigation</button>
-          <label className="godswitch" title="Show configuration / agent building">
-            <input type="checkbox" checked={admin} onChange={(e) =>
-              goTo({ admin: e.target.checked, view: !e.target.checked && view === "agent" ? "overview" : view })} />
-            <span className="slider" />
-            <span className="godlabel">Admin</span>
-          </label>
         </div>
       </header>
 
@@ -87,17 +76,8 @@ export default function App() {
         {view === "overview" && <Dashboard caps={caps} onGo={go} onOpenRun={openRun} onPickAgent={newInvestigation} />}
         {view === "data" && <DataStep />}
         {view === "investigate" && (
-          <ChatPanel key={chat} caps={caps} chatId={chat} initialAgents={agents} onBack={() => go("overview")} />
-        )}
-        {view === "agent" && admin && (
-          <div className="card">
-            <h2>Build an investigation agent</h2>
-            <p className="muted">
-              Write a persona and choose which tools it may use. Registered live and routable
-              immediately - the same seam every specialist agent is built on.
-            </p>
-            <AgentBuilder caps={caps} advanced onCreated={newInvestigation} />
-          </div>
+          <ChatPanel key={chat} caps={caps} chatId={chat} initialAgents={agents}
+            onBack={() => go("overview")} refreshCaps={refreshCaps} />
         )}
       </main>
     </div>

@@ -37,13 +37,12 @@ CONSULT_TOOL = "consult_agent"  # calling this recruits another agent (multi-age
 # no decoration, every claim referenced, every finding reproducible.
 STYLE = (
     "OUTPUT RULES (strict, override any other style):\n"
-    "- No emojis. No filler, hype, or flattery. State findings directly.\n"
-    "- Be concise: short sentences, tables/lists over prose.\n"
-    "- Reference every claim: cite the table.column, document name + section, or the "
-    "exact value you used. No unreferenced assertions.\n"
-    "- Be replicable: include the exact SQL, tool name + arguments, or steps so another "
-    "engineer can reproduce the result.\n"
-    "- If something is unknown or a tool is not implemented, say so plainly."
+    "- BE BRIEF. Answer only what was asked, in the fewest words. Aim for a few "
+    "sentences or one small table. Do NOT add extra sections (no 'Recommended Next "
+    "Steps', 'Confidence Limitations', 'Summary', etc.) unless explicitly asked.\n"
+    "- No emojis. No filler, hype, flattery, or restating the question.\n"
+    "- Reference each claim with the table.column, document, or exact value used.\n"
+    "- If something is unknown, missing, or a tool is not implemented, say so in one line."
 )
 
 
@@ -266,18 +265,47 @@ def specialist_agents():
     return [n for n, a in AGENTS.all().items() if CONSULT_TOOL not in (a.tools or [])]
 
 
-TEAM_SESSIONS: dict = {}   # chat_id -> [{"task", "synthesis"}] for follow-up continuity
+TEAM_SESSIONS: dict = {}    # chat_id -> [{"task", "synthesis"}] for follow-up continuity
+CLARIFY_PENDING: dict = {}  # chat_id -> {"task"} when the team asked the user to clarify
+
+
+def _needs_clarification(task, results):
+    """LLM decides (not hardcoded) whether the specialists flagged the input as
+    ambiguous such that ONE question to the user would materially change the answer.
+    Returns the question, or None."""
+    findings = "\n\n".join(f"{n}: {(r or '')[:500]}" for n, r in results.items())
+    try:
+        r = model.complete(
+            [{"role": "user", "content":
+              f"User question: {task}\n\nSpecialist findings:\n{findings}\n\n"
+              "Decide whether to ask the user ONE clarifying question before answering. "
+              "Ask if the question hinges on an ambiguous reference the specialists had to "
+              "GUESS the meaning of - e.g. a bare value/identifier like '844' that could be "
+              "a wafer id, lot id, or something else - or if specialists interpreted it "
+              "differently. Do NOT ask merely because data is missing or a tool is a stub. "
+              "If you should ask, reply with exactly one line: CLARIFY: <one short question>. "
+              "Otherwise reply exactly: OK"}],
+            [], _style("You decide whether to ask the user one clarifying question."))
+        out = (r.content or "").strip()
+    except Exception:
+        return None
+    return out.split(":", 1)[1].strip() if out.upper().startswith("CLARIFY:") else None
 
 
 def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
     """Run multiple agents IN PARALLEL on the same task, stream their interleaved
-    steps (each tagged with its agent), then synthesize one conclusion. This is the
-    default investigation mode: list the agents, fire them at once, combine.
-    Optionally restrict the tools agents may use and the data sources in scope."""
+    steps, then EITHER ask the user one clarifying question (if the input was
+    ambiguous) OR synthesize one concise conclusion."""
     names = [n for n in (agent_names or specialist_agents()) if n in AGENTS.all()]
     if not names:
         names = specialist_agents()
     allow = set(allow_tools) if allow_tools else None
+
+    user_msg = task                                   # what the user actually typed this turn
+    pend = CLARIFY_PENDING.pop(chat_id, None)
+    skip_clarify = bool(pend)
+    if pend:                                          # this message answers our clarifying question
+        task = f"{pend['task']}\n\nUser clarification: {user_msg}"
 
     history = TEAM_SESSIONS.setdefault(chat_id, [])
     context = ""
@@ -295,7 +323,7 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
         runs.record(chat_id, ev)
         return ev
 
-    yield emit({"type": "user_message", "data": {"text": task}})
+    yield emit({"type": "user_message", "data": {"text": user_msg}})
     yield emit({"type": "agent_switch",
                 "data": {"agent": "team", "role": "dispatch", "agents": names, "chat_id": chat_id}})
 
@@ -338,6 +366,16 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
     for t in threads:
         t.join(timeout=1)
 
+    # If the input was ambiguous, ask the user ONE clarifying question instead of
+    # guessing past the specialists who flagged it.
+    if len(names) > 1 and not skip_clarify:
+        cq = _needs_clarification(task, results)
+        if cq:
+            CLARIFY_PENDING[chat_id] = {"task": task}
+            yield emit({"type": "needs_human", "data": {"question": cq, "chat_id": chat_id}})
+            runs.finish_run(chat_id, "awaiting_human")
+            return
+
     # One agent selected -> return its findings directly; 2+ -> synthesize across them.
     if len(names) == 1:
         synthesis = list(results.values())[0] or "(no findings)"
@@ -349,24 +387,24 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
 
 
 def _synthesize(task, results):
-    """Combine the parallel specialists' findings into one conclusion."""
-    findings = "\n\n".join(f"### {n}\n{r}" for n, r in results.items())
+    """One brief conclusion from the parallel specialists. The full per-specialist
+    detail is in the trace, so we do NOT dump it here (that was the verbosity)."""
+    findings = "\n\n".join(f"{n}: {r}" for n, r in results.items())
     if cfg.mock_llm:
-        return "# Combined specialist findings\n\n" + findings
+        return "Combined findings:\n" + "\n".join(f"- {n}: {(r or '')[:140]}" for n, r in results.items())
     try:
         r = model.complete(
             [{"role": "user", "content":
-              f"Investigation question: {task}\n\nSpecialist findings:\n{findings}\n\n"
-              "Synthesize a concise root-cause conclusion with a recommended countermeasure. "
-              "Cite which specialist found what and the data/document behind each point. "
-              "Use plain markdown."}],
-            [], _style("You are the lead RCA investigator synthesizing your team's parallel findings."))
+              f"Question: {task}\n\nSpecialist findings:\n{findings}\n\n"
+              "Answer the question in at most 5 sentences or one small table. Give the "
+              "single most likely cause only if relevant. Cite the table.column or "
+              "document behind each point. Do NOT repeat the specialists' full text and "
+              "do NOT add extra sections."}],
+            [], _style("You are the lead RCA investigator. Be brief."))
         concl = (r.content or "").strip()
-    except Exception as e:
+    except Exception:
         concl = ""
-        findings = f"(synthesis model error: {e})\n\n" + findings
-    return ((concl + "\n\n---\n\n## Specialist findings\n\n" + findings)
-            if concl else ("# Specialist findings\n\n" + findings))
+    return concl or ("Findings:\n" + "\n".join(f"- {n}: {(r or '')[:200]}" for n, r in results.items()))
 
 
 def add_context(chat_id, text):

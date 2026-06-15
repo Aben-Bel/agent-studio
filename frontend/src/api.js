@@ -43,6 +43,12 @@ export async function getProcessStatus() {
   return r.json();
 }
 
+// Preview rows of a table in a connected source (for the inspect modal).
+export async function previewTable(source, table, limit = 50) {
+  const r = await fetch(`${BASE}/sources/${encodeURIComponent(source)}/${encodeURIComponent(table)}/preview?limit=${limit}`);
+  return r.json();
+}
+
 // The investigation audit trail (every run).
 export async function getRuns() {
   const r = await fetch(`${BASE}/runs`);
