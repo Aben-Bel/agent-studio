@@ -131,8 +131,12 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     try {
       const r = await uploadFiles(files);
       const byName = {}; (r.results || []).forEach((x) => { byName[x.name] = x; });
-      setUploads(files.map((f) => ({ name: f.name, ...describeResult(byName[f.name]) })));
+      const results = files.map((f) => ({ name: f.name, ...describeResult(byName[f.name]) }));
+      setUploads(results);
       await loadSources();
+      // The file now appears in the list below; clear the transient feedback
+      // (keep it only if something errored so the user can see it).
+      if (results.every((x) => x.status === "done")) setTimeout(() => setUploads([]), 3500);
     } catch (err) {
       setUploads(files.map((f) => ({ name: f.name, status: "error", detail: String(err) })));
     }
