@@ -30,9 +30,9 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
   return (
     <div className="dash">
       <div className="stat-grid">
-        <Stat label="Data sources" value={sources.length} sub={`${tableCount} tables`} onClick={() => onGo("data")} />
-        <Stat label="Documents indexed" value={docDone} sub={pipe.pending ? `${pipe.pending} pending` : "RAG ready"} onClick={() => onGo("data")} />
-        <Stat label="Tools" value={(caps.tools || []).length} sub={`${(caps.stages || []).length} pipeline stages`} onClick={() => onGo("capabilities")} />
+        <Stat label="Data sources" value={sources.length} sub={`${tableCount} tables`} />
+        <Stat label="Documents indexed" value={docDone} sub={pipe.pending ? `${pipe.pending} pending` : "RAG ready"} />
+        <Stat label="Tools" value={(caps.tools || []).length} sub={`${(caps.stages || []).length} pipeline stages`} />
         <Stat label="Investigations" value={runs.length} sub="audit trail" onClick={() => onGo("investigate")} />
       </div>
 
@@ -96,11 +96,12 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
 }
 
 function Stat({ label, value, sub, onClick }) {
-  return (
-    <button className="stat" onClick={onClick}>
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-      <div className="stat-sub">{sub}</div>
-    </button>
-  );
+  const inner = (<>
+    <div className="stat-value">{value}</div>
+    <div className="stat-label">{label}</div>
+    <div className="stat-sub">{sub}</div>
+  </>);
+  return onClick
+    ? <button className="stat clickable" onClick={onClick}>{inner}</button>
+    : <div className="stat">{inner}</div>;
 }
