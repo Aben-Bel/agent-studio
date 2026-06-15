@@ -28,7 +28,8 @@ class ConnectDbRequest(BaseModel):
 # ---- Streamed event model (documented even though it flows over SSE) ----
 class Event(BaseModel):
     type: Literal["agent_switch", "progress", "thinking", "tool_call", "tool_result",
-                  "needs_human", "context_added", "user_message", "final", "error"]
+                  "needs_human", "context_added", "user_message", "suggestions",
+                  "final", "error"]
     data: dict[str, Any]
 
 

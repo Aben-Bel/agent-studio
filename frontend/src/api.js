@@ -65,6 +65,12 @@ export async function getRuns() {
   return r.json();
 }
 
+// Suggested starter questions (data-aware) for the empty state.
+export async function getSuggestions() {
+  const r = await fetch(`${BASE}/suggest`);
+  return r.json();
+}
+
 // Full persisted trace of one investigation.
 export async function getRun(chatId) {
   const r = await fetch(`${BASE}/runs/${encodeURIComponent(chatId)}`);

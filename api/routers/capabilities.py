@@ -20,6 +20,12 @@ def capabilities():
     return orchestrator.capabilities()
 
 
+@router.get("/suggest")
+def suggest():
+    """A few data-aware starter questions so the user is not staring at a blank box."""
+    return {"questions": orchestrator.suggest_questions()}
+
+
 @router.get("/runs")
 def list_runs():
     """The investigation audit trail: every run, its agent, status, and step count."""

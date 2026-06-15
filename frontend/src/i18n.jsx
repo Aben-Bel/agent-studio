@@ -46,6 +46,7 @@ const STRINGS = {
     loading: "loading...",
     // overview
     startInvestigation: "Start a root-cause investigation",
+    tryAsking: "Try asking:",
   },
   de: {
     title: "Ausbeuteanalyse",
@@ -87,6 +88,7 @@ const STRINGS = {
     close: "Schließen",
     loading: "wird geladen...",
     startInvestigation: "Ursachenanalyse starten",
+    tryAsking: "Fragen Sie z. B.:",
   },
 };
 

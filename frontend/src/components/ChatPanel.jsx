@@ -5,7 +5,7 @@ import { TraceLanes } from "./Trace.jsx";
 import Modal from "./Modal.jsx";
 import AddAgentModal from "./AddAgentModal.jsx";
 import { useI18n } from "../i18n.jsx";
-import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument } from "../api.js";
+import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions } from "../api.js";
 
 const Md = ({ children }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ""}</ReactMarkdown></div>
@@ -33,6 +33,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const [inspectAgent, setInspectAgent] = useState(null); // agent being inspected
   const [docs, setDocs] = useState([]);          // uploaded documents
   const [inspectDoc, setInspectDoc] = useState(null); // {source, text, loading}
+  const [suggestions, setSuggestions] = useState([]); // suggested questions
 
   const [messages, setMessages] = useState([]);
   const [turns, setTurns] = useState([]);       // [{question, events:[]}] - one per turn, never wiped
@@ -67,6 +68,12 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     setInspectDoc({ source: d.source, text: r.text || "", error: r.error });
   }
   useEffect(() => { loadSources(); }, []);
+  useEffect(() => { getSuggestions().then((s) => setSuggestions(s.questions || [])).catch(() => {}); }, []);
+  function askSuggestion(q) {
+    if (busy) return;
+    if (!agents.length) { setError("Select at least one agent in Setup."); return; }
+    run(q);
+  }
 
   // The persisted audit trail is the SOURCE OF TRUTH for the trace. We split its
   // events into turns (on user_message) and never wipe earlier turns.
@@ -179,6 +186,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     setTurns((t) => [...t, { question: message, events: [] }]);   // new turn, keep old ones
     stickMsg.current = true; stickFeed.current = true;
     setBusy(true); setAwaiting(null); setError(null); setStatus("dispatching..."); setLastMsg(message);
+    setSuggestions([]);
     const ac = new AbortController(); abortRef.current = ac;
 
     let answer = "", paused = null, errored = null;
@@ -199,6 +207,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           if (ev.type === "final" && !d.depth) answer = d.message;
           if (ev.type === "needs_human") paused = d.question;
           if (ev.type === "error" && !d.agent_scope) errored = d.message;
+          if (ev.type === "suggestions") setSuggestions(d.questions || []);
         }, ac.signal);
     } catch (e) {
       if (ac.signal.aborted) { setMessages((m) => [...m, { role: "note", text: "stopped" }]); setBusy(false); setStatus(""); abortRef.current = null; return; }
@@ -327,6 +336,14 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             ))}
             {busy && <div className="statusline"><span className="spin" /> {status || "working..."}</div>}
           </div>
+          {suggestions.length > 0 && !busy && !awaiting && (
+            <div className="suggestions">
+              {messages.length === 0 && <span className="muted small sugg-label">{t("tryAsking")}</span>}
+              {suggestions.map((q, i) => (
+                <button key={i} className="suggestion-chip" onClick={() => askSuggestion(q)} title={q}>{q}</button>
+              ))}
+            </div>
+          )}
           {awaiting && <div className="askbanner"><strong>{t("needsInput")}</strong> {t("typeAnswer")}</div>}
           {error && <div className="retrybar">{error}<button onClick={retry}>{t("retry")}</button></div>}
           <div className="row composer">

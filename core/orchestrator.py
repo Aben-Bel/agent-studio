@@ -269,6 +269,32 @@ TEAM_SESSIONS: dict = {}    # chat_id -> [{"task", "synthesis"}] for follow-up c
 CLARIFY_PENDING: dict = {}  # chat_id -> {"task"} when the team asked the user to clarify
 
 
+def suggest_questions(context=""):
+    """A few short questions to help the user (initial starters, or follow-ups).
+    Data-aware: knows what tables/documents are loaded. Returns <= 4 questions."""
+    from connectors import datastore, memory
+    tables = [t for s in datastore.list_sources() for t in s["tables"]]
+    docs = [d["source"] for d in memory.list_documents()]
+    fallback = ["What can you do?",
+                "Which process step has the most defects?",
+                "What is the top defect driver?"]
+    if cfg.mock_llm:
+        return fallback
+    info = f"Loaded tables: {', '.join(tables) or 'none'}. Documents: {', '.join(docs) or 'none'}."
+    try:
+        r = model.complete(
+            [{"role": "user", "content":
+              f"{info}\n{context}\n\nSuggest 3 short, specific questions a yield-analysis "
+              "engineer might ask next given this data. Each under 9 words, concrete. "
+              "One per line, no numbering, no quotes."}],
+            [], "You suggest concise, useful next questions. Output only the questions.")
+        qs = [ln.strip("-*0123456789. \"'") for ln in (r.content or "").splitlines() if ln.strip()]
+        qs = [q for q in qs if 3 < len(q) < 90][:4]
+        return qs or fallback
+    except Exception:
+        return fallback
+
+
 def _route_agents(task, names):
     """LLM picks the minimal set of relevant specialists for THIS question, from
     the ones the user selected. Routing, not always fan-out. Falls back to all."""
@@ -410,6 +436,11 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
     history.append({"task": task, "synthesis": synthesis})
     runs.finish_run(chat_id, "done")
     yield emit({"type": "final", "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True}})
+    try:
+        sg = suggest_questions(f"Question: {user_msg}\nConclusion: {synthesis[:400]}")
+        yield emit({"type": "suggestions", "data": {"questions": sg}})
+    except Exception:
+        pass
 
 
 def _synthesize(task, results):
