@@ -5,12 +5,12 @@ from connectors import datastore
 import pandas as pd
 
 class Empty(BaseModel):
-    pass
+    name: str | None = None   # optional: which uploaded file/table to load (default: most recent)
 
-@tool("load_uploaded_csv", "Load and return the contents of the user-uploaded CSV file.", Empty, owner="laure")
-def load_uploaded_csv():
+@tool("load_uploaded_csv", "Load and return the contents of an uploaded CSV. Pass `name` to pick a specific file/table when several were uploaded; omit it for the most recent.", Empty, owner="laure")
+def load_uploaded_csv(name=None):
     # datastore.get_uploaded_file() should return a path or file-like object
-    file_path = datastore.get_uploaded_file()
+    file_path = datastore.get_uploaded_file(name)
     if not file_path:
         return "No file uploaded yet."
     try:

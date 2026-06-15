@@ -101,10 +101,14 @@ def list_sources():
     return out
 
 
+_LAST_UPLOAD = None   # (source, table) of the most recently uploaded CSV
+
+
 def load_csv(path, table=None, source="local"):
     """Load a CSV upload into its OWN table on the given source. The table name
     defaults to the file name, so uploading several CSVs no longer clobbers a
     single shared table."""
+    global _LAST_UPLOAD
     table = _safe_name(table or os.path.splitext(os.path.basename(path))[0], "dataset")
     with open(path, encoding="utf-8", errors="ignore", newline="") as f:
         rows = list(csv.reader(f))
@@ -132,7 +136,40 @@ def load_csv(path, table=None, source="local"):
         if data:
             cx.execute(tbl.insert(),
                        [dict(zip(header, r[:len(header)])) for r in data])
+    _LAST_UPLOAD = (source, table)
     return {"table": table, "rows": len(data), "source": source}
+
+
+def get_uploaded_file(name=None):
+    """Return an uploaded CSV as a file-like object pandas can read (or None).
+    Uploaded CSVs are ingested into their own SQL table, so we serialise that table
+    back to CSV text on demand - the upload's temp file is long gone by the time a
+    tool wants it. With several uploads, pass `name` (a filename or table name) to
+    pick one; omit it for the most recently uploaded."""
+    import io
+    if name:                                 # caller asked for a specific upload
+        want = _safe_name(os.path.splitext(name)[0])
+        target = next(((s["name"], t) for s in list_sources()
+                       for t in s.get("tables", []) if t == want), None)
+    else:
+        target = _LAST_UPLOAD
+        if target is None:                   # nothing uploaded this run -> last table, if any
+            tables = [(s["name"], t) for s in list_sources() for t in s.get("tables", [])]
+            target = tables[-1] if tables else None
+    if target is None:
+        return None
+    src, tbl = target
+    try:
+        cols, rows = run_sql(f'SELECT * FROM "{tbl}"', source=src)
+    except Exception:
+        return None
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    if cols:
+        w.writerow(cols)
+    w.writerows(rows)
+    buf.seek(0)
+    return buf
 
 
 def run_sql(sql, source="local"):

@@ -34,6 +34,12 @@ HUMAN_TOOL = "ask_human"        # calling this pauses the run for human input
 CONSULT_TOOL = "consult_agent"  # calling this recruits another agent (multi-agent)
 EXPORT_TOOL = "prepare_download"  # calling this generates a downloadable artifact
 
+# Platform primitives every agent always gets (on top of its own specialist tools),
+# so no agent is ever "data-blind" or unable to produce an output regardless of how
+# the question was routed or which tools the user toggled: see + load the data, and
+# generate a download. Only the ones actually registered are injected.
+BUILTIN_TOOLS = ["list_data_sources", "load_uploaded_csv", EXPORT_TOOL]
+
 # Friendly aliases -> exporter name, so the agent can say pdf/slides/report/latex.
 _FORMAT_ALIASES = {
     "pdf": "presentation_pdf", "slides": "presentation_pdf", "slide": "presentation_pdf",
@@ -182,11 +188,14 @@ def _drive(sess):
     agent = AGENTS.get(sess["agent"])
     allow = sess.get("allow_tools")
     funcs = _specs([t for t in agent.tools if not allow or t in allow])
-    # prepare_download is a built-in OUTPUT capability: always available to every
-    # agent (regardless of tool restrictions) so any agent can satisfy a download
-    # request. It is intercepted below, never dispatched to the registry fn.
-    if EXPORT_TOOL in TOOLS.all() and not any(f["name"] == EXPORT_TOOL for f in funcs):
-        funcs = funcs + _specs([EXPORT_TOOL])
+    # Platform primitives (data discovery + download) are ALWAYS available to every
+    # agent, regardless of tool restrictions, so no agent ever falsely claims it has
+    # no data or cannot produce a file. prepare_download is intercepted below; the
+    # data tools dispatch normally.
+    have = {f["name"] for f in funcs}
+    extra = [b for b in BUILTIN_TOOLS if b in TOOLS.all() and b not in have]
+    if extra:
+        funcs = funcs + _specs(extra)
     sess["status"] = "running"
 
     while sess["step"] < cfg.max_steps:

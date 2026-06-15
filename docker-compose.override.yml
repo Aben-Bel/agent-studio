@@ -1,0 +1,22 @@
+# LOCAL DEV SPEED OVERRIDE (auto-merged by `docker compose up`, NOT used in prod,
+# which runs `docker compose -f docker-compose.prod.yml ...`).
+#
+# Goal: never rebuild an image just for a code change.
+#  - backend: bind-mount the source so the image's code is replaced by the live
+#    tree (the texlive + pip layers already live in the built image). A code change
+#    then needs only `docker compose restart backend` (~3s), not a rebuild.
+#  - frontend: serve the locally-built dist/ directly -> a change is just
+#    `cd frontend && npm run build` + browser refresh, no Docker build at all.
+#
+# First time only: `docker compose up -d --build` once to bake deps/texlive.
+# After that:  backend code -> `docker compose restart backend`
+#              frontend code -> `cd frontend && npm run build`
+services:
+  backend:
+    volumes:
+      - ./:/app          # live source (deps are installed in the image, not under /app)
+      - appdata:/data    # keep the persistent app.db / uploads volume
+
+  frontend:
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro   # serve locally-built dist
