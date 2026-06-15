@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Callable, Type
 from pydantic import BaseModel
-from .registry import AGENTS, TOOLS, SKILLS
+from .registry import AGENTS, TOOLS, SKILLS, MCP
 
 
 # ---- AGENT ----
@@ -56,5 +56,28 @@ def skill(name, description=""):
     """Declare a skill: a reusable multi-step routine the agent can invoke."""
     def deco(fn):
         SKILLS.register(name)(SkillDecl(name, description, fn))
+        return fn
+    return deco
+
+
+# ---- MCP SERVER ----
+@dataclass
+class McpDecl:
+    name: str
+    description: str
+    config: dict                 # {transport, command/args, url, ...} — how to reach it
+    fn: Callable = None          # optional handler/factory for the connection
+
+
+def mcp(name, description="", **config):
+    """Declare an MCP server. Drop a file in mcp/ (any subfolder) like:
+
+        @mcp("filesystem", "Local files", transport="stdio",
+             command="npx", args=["-y", "@modelcontextprotocol/server-filesystem", "/data"])
+        def filesystem(): ...
+
+    It self-registers and appears in /capabilities, same as tools/skills/agents."""
+    def deco(fn=None):
+        MCP.register(name)(McpDecl(name, description, config, fn))
         return fn
     return deco

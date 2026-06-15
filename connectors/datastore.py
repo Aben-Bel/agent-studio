@@ -1,11 +1,16 @@
-import os, csv, sqlite3, random
+import os, csv, re, random
+from sqlalchemy import (create_engine, inspect, text,
+                        MetaData, Table, Column, String)
+from sqlalchemy.engine import make_url
 from core.config import cfg
 
 
-def _conn():
-    os.makedirs(os.path.dirname(cfg.db_path) or ".", exist_ok=True)
-    return sqlite3.connect(cfg.db_path)
-
+# A "source" is any SQL database we can talk to. "local" is the bundled SQLite
+# file that holds uploaded CSVs; every Postgres/MySQL/... URL the user connects
+# becomes another named source. Same interface, different connection string —
+# which is the whole point: a CSV table and a live Postgres link are queried
+# identically downstream.
+_ENGINES: dict = {}
 
 BUILTIN = [
     "Why did the scarecrow win an award? He was outstanding in his field.",
@@ -14,53 +19,128 @@ BUILTIN = [
 ]
 
 
-def load_csv(path, table):
-    """Load a CSV upload into a SQL table. A real database link is just a
-    different connection string against this same interface."""
-    with open(path, encoding="utf-8", errors="ignore") as f:
+def _safe_name(name, fallback="data"):
+    """SQL-safe identifier: lowercase, alnum + underscore, never empty / leading digit."""
+    s = re.sub(r"\W+", "_", (name or "").strip().lower()).strip("_")
+    if not s or s[0].isdigit():
+        s = (fallback + "_" + s).strip("_")
+    return s or fallback
+
+
+def _normalize_url(url):
+    """Accept the URLs people actually paste. SQLAlchemy wants 'postgresql://',
+    but Heroku/Railway/etc. hand out 'postgres://'."""
+    url = (url or "").strip()
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    return url
+
+
+def _engine(source="local"):
+    if source not in _ENGINES:
+        if source == "local":
+            os.makedirs(os.path.dirname(cfg.db_path) or ".", exist_ok=True)
+            _ENGINES["local"] = create_engine(f"sqlite:///{cfg.db_path}")
+        else:
+            raise KeyError(f"unknown data source '{source}'. "
+                           f"Connect it first via connect_db().")
+    return _ENGINES[source]
+
+
+def connect_db(url, name=None):
+    """Register an external database (Postgres, MySQL, ...) by URL so it becomes
+    a queryable source alongside the local CSV store. Validates the connection
+    and returns what is inside it. Multiple URLs can be connected at once."""
+    url = _normalize_url(url)
+    if not url:
+        raise ValueError("empty database url")
+    try:
+        parsed = make_url(url)
+    except Exception as e:
+        raise ValueError(f"invalid database url: {e}")
+    name = _safe_name(name or parsed.database or parsed.host or "db", "db")
+    if name == "local":                      # never shadow the bundled store
+        name = "local_db"
+    eng = create_engine(url, pool_pre_ping=True)
+    with eng.connect() as cx:                # fail fast on bad creds / unreachable host
+        cx.execute(text("select 1"))
+    _ENGINES[name] = eng
+    return {"name": name, "dialect": eng.dialect.name,
+            "tables": inspect(eng).get_table_names()}
+
+
+def list_sources():
+    """Every connected source and the tables in it (for /sources and tooling)."""
+    _engine("local")                         # make sure local is always present
+    out = []
+    for name, eng in _ENGINES.items():
+        try:
+            tables = inspect(eng).get_table_names()
+        except Exception:
+            tables = []
+        out.append({"name": name, "dialect": eng.dialect.name, "tables": tables})
+    return out
+
+
+def load_csv(path, table=None, source="local"):
+    """Load a CSV upload into its OWN table on the given source. The table name
+    defaults to the file name, so uploading several CSVs no longer clobbers a
+    single shared table."""
+    table = _safe_name(table or os.path.splitext(os.path.basename(path))[0], "dataset")
+    with open(path, encoding="utf-8", errors="ignore", newline="") as f:
         rows = list(csv.reader(f))
     if not rows:
-        return 0
-    header = [c.strip() or f"col{i}" for i, c in enumerate(rows[0])]
-    db = _conn()
-    cols = ", ".join(f'"{h}" text' for h in header)
-    db.execute(f'drop table if exists "{table}"')
-    db.execute(f'create table "{table}" ({cols})')
-    ph = ", ".join("?" for _ in header)
-    db.executemany(f'insert into "{table}" values ({ph})',
-                   [r + [""] * (len(header) - len(r)) for r in rows[1:]])
-    db.commit()
-    n = db.execute(f'select count(*) from "{table}"').fetchone()[0]
-    db.close()
-    return n
+        return {"table": table, "rows": 0, "source": source}
+
+    # Build de-duplicated, non-empty headers.
+    header, seen = [], {}
+    for i, c in enumerate(rows[0]):
+        h = _safe_name(c, f"col{i}")
+        if h in seen:
+            seen[h] += 1
+            h = f"{h}_{seen[h]}"
+        else:
+            seen[h] = 0
+        header.append(h)
+
+    eng = _engine(source)
+    md = MetaData()
+    tbl = Table(table, md, *[Column(h, String) for h in header])
+    data = [r + [""] * (len(header) - len(r)) for r in rows[1:]]
+    with eng.begin() as cx:
+        tbl.drop(cx, checkfirst=True)
+        tbl.create(cx)
+        if data:
+            cx.execute(tbl.insert(),
+                       [dict(zip(header, r[:len(header)])) for r in data])
+    return {"table": table, "rows": len(data), "source": source}
+
+
+def run_sql(sql, source="local"):
+    """Run a query against a source. Returns (columns, rows)."""
+    eng = _engine(source)
+    with eng.connect() as cx:
+        res = cx.execute(text(sql))
+        if res.returns_rows:
+            cols = list(res.keys())
+            rows = [list(r) for r in res.fetchall()]
+        else:
+            cols, rows = [], []
+    return cols, rows
 
 
 def random_joke():
-    """Pull a joke from the uploaded dataset; fall back to builtins."""
-    db = _conn()
-    try:
-        tabs = [r[0] for r in db.execute(
-            "select name from sqlite_master where type='table'").fetchall()]
-        if "jokes" in tabs:
-            rows = db.execute('select * from "jokes"').fetchall()
-            cols = [d[0] for d in db.execute('select * from "jokes" limit 1').description]
-            if rows:
-                row = random.choice(rows)
-                d = dict(zip(cols, row))
-                setup = d.get("setup") or d.get("question") or ""
-                punch = d.get("punchline") or d.get("answer") or ""
-                return f"{setup} {punch}".strip() or " | ".join(str(x) for x in row)
-    finally:
-        db.close()
-    return random.choice(BUILTIN)
-
-
-def run_sql(sql):
-    db = _conn()
-    try:
-        cur = db.execute(sql)
-        rows = cur.fetchall()
-        cols = [d[0] for d in cur.description] if cur.description else []
-        return cols, rows
-    finally:
-        db.close()
+    """Pull a joke from the local 'jokes' table; fall back to builtins."""
+    eng = _engine("local")
+    if "jokes" not in inspect(eng).get_table_names():
+        return random.choice(BUILTIN)
+    md = MetaData()
+    jokes = Table("jokes", md, autoload_with=eng)
+    with eng.connect() as cx:
+        rows = cx.execute(jokes.select()).mappings().all()
+    if not rows:
+        return random.choice(BUILTIN)
+    d = random.choice(rows)
+    setup = d.get("setup") or d.get("question") or ""
+    punch = d.get("punchline") or d.get("answer") or ""
+    return f"{setup} {punch}".strip() or " | ".join(str(v) for v in d.values())

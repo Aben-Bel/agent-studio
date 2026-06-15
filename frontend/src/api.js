@@ -5,11 +5,78 @@ export async function getCapabilities() {
   return r.json();
 }
 
+// Upload one or many files in a single request. Returns { results: [...] }.
+export async function uploadFiles(files) {
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  const r = await fetch(`${BASE}/upload`, { method: "POST", body: fd });
+  return r.json();
+}
+
+// Backward-compatible single-file upload (kept for callers that still use it).
 export async function uploadFile(file) {
   const fd = new FormData();
   fd.append("file", file);
   const r = await fetch(`${BASE}/upload`, { method: "POST", body: fd });
   return r.json();
+}
+
+// Connect an external database (e.g. Postgres) by URL.
+export async function connectDb(url, name) {
+  const r = await fetch(`${BASE}/connect-db`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, name: name || null }),
+  });
+  return r.json();
+}
+
+// List every connected data source (local CSV store + connected databases).
+export async function getSources() {
+  const r = await fetch(`${BASE}/sources`);
+  return r.json();
+}
+
+// Restore a chat session (transcript, status, pending question).
+export async function getSession(chatId) {
+  const r = await fetch(`${BASE}/sessions/${encodeURIComponent(chatId)}`);
+  return r.json();
+}
+
+// --- Direct-to-S3 upload (file bytes never pass through the backend) ---
+// 1) ask the backend for a presigned URL, 2) PUT the file straight to S3,
+// 3) return {key, get_url, ...} so you can hand the key back to the backend.
+export async function uploadToS3(file) {
+  const presign = await fetch(`${BASE}/uploads/presign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, content_type: file.type || null }),
+  }).then((r) => r.json());
+
+  const put = await fetch(presign.upload_url, {
+    method: "PUT",
+    headers: file.type ? { "Content-Type": file.type } : {},
+    body: file,
+  });
+  if (!put.ok) throw new Error(`S3 upload failed: ${put.status}`);
+
+  return presign; // { key, upload_url, get_url, bucket }
+}
+
+// Tell the backend to pick up an uploaded object (by key or link) and ingest it.
+export async function ingestFromS3(key) {
+  const r = await fetch(`${BASE}/ingest-s3`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key }),
+  });
+  return r.json();
+}
+
+// Convenience: upload straight to S3, then ingest in one call.
+export async function uploadAndIngest(file) {
+  const { key } = await uploadToS3(file);
+  return ingestFromS3(key);
 }
 
 export async function createAgent(agent) {
@@ -21,12 +88,13 @@ export async function createAgent(agent) {
   return r.json();
 }
 
-// Streams orchestrator events. onEvent is called for each {type, data}.
-export async function runChat({ agent, message, history }, onEvent) {
+// Streams orchestrator events. Pass chat_id to keep a stateful, resumable
+// session (memory + human-in-the-loop). onEvent is called for each {type, data}.
+export async function runChat({ agent, message, history, chat_id }, onEvent) {
   const res = await fetch(`${BASE}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, message, history }),
+    body: JSON.stringify({ agent, message, history: history || [], chat_id }),
   });
   const reader = res.body.getReader();
   const dec = new TextDecoder();

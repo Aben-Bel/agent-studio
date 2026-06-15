@@ -11,7 +11,7 @@ services:
     volumes:
       - appdata:/data
     ports:
-      - "8000:8000"   # exposed for direct debugging; frontend talks via the network
+      - "8001:8000"   # host 8001 -> container 8000 (8000 was taken by another project)
     restart: unless-stopped
 
   frontend:
@@ -19,7 +19,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"     # open http://localhost:8080  (change to "80:80" on a server)
+      - "8095:80"     # open http://localhost:8095  (change to "80:80" on a server)
     restart: unless-stopped
 
 volumes:

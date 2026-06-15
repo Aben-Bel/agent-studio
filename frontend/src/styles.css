@@ -94,3 +94,67 @@ button:disabled { opacity: 0.5; cursor: default; }
 .ev.error .tag { color: #ffb4b4; border-color: #7a3a3a; }
 .evtext { word-break: break-word; }
 .composer input { flex: 1; }
+
+/* ---- header + god-mode toggle ---- */
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.brand h1 { margin: 0; }
+.brand .sub { font-size: 12.5px; color: var(--muted); }
+.head-right { display: flex; align-items: center; gap: 12px; }
+button.ghost { background: transparent; }
+.godswitch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; }
+.godswitch input { display: none; width: auto; }
+.godswitch .slider {
+  width: 38px; height: 22px; border-radius: 999px; background: #21252e;
+  border: 1px solid var(--line); position: relative; transition: 0.15s;
+}
+.godswitch .slider::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--muted); transition: 0.15s;
+}
+.godswitch input:checked + .slider { background: #2a1f3a; border-color: var(--accent); }
+.godswitch input:checked + .slider::after { left: 18px; background: var(--accent); }
+.godlabel { font-size: 13px; color: var(--text); }
+
+/* ---- tabs ---- */
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.pill { cursor: pointer; }
+
+/* ---- data step ---- */
+.db-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.db-row .grow { flex: 1 1 260px; }
+.db-row .name { flex: 0 0 140px; }
+.db-row button { white-space: nowrap; }
+.dbmsg { margin-top: 8px; font-size: 13px; }
+.dbmsg.ok { color: #cdeede; }
+.dbmsg.err { color: #ffb4b4; }
+.dbmsg.info { color: var(--muted); }
+.results code { color: #c9d2ff; }
+.sources { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.sources-title { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.src { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; font-size: 13.5px; }
+.src-name { font-weight: 600; min-width: 90px; }
+.src-dialect {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 5px; padding: 1px 6px;
+}
+.src-tables { color: var(--muted); }
+
+/* ---- capabilities ---- */
+.capsec { margin-top: 16px; }
+.capsec-title { font-weight: 600; margin-bottom: 6px; }
+.capsec-title .count {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 999px; padding: 0 7px; margin-left: 6px;
+}
+.caplist { display: flex; flex-direction: column; gap: 4px; }
+.capitem { font-size: 13.5px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.capitem code { color: #c9d2ff; }
+
+/* ---- chat extras ---- */
+.chatid { color: var(--muted); font-size: 12px; }
+.msg.pendingq { background: #2a2418; border: 1px solid #5a4a22; }
+.msg .ask {
+  display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: #d8a852; margin-bottom: 4px;
+}
+.agent-builder label:first-child { margin-top: 0; }

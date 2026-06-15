@@ -7,6 +7,7 @@ class RunRequest(BaseModel):
     agent: str = "joker"
     message: str
     history: list[dict] = []
+    chat_id: Optional[str] = None   # set it to keep a stateful, resumable session
 
 
 class CreateAgentRequest(BaseModel):
@@ -16,10 +17,15 @@ class CreateAgentRequest(BaseModel):
     tools: list[str] = []           # tool/skill names this agent may call
 
 
+class ConnectDbRequest(BaseModel):
+    url: str                        # e.g. postgresql://user:pass@host:5432/dbname
+    name: Optional[str] = None      # optional label; defaults to the db name
+
+
 # ---- Streamed event model (documented even though it flows over SSE) ----
 class Event(BaseModel):
     type: Literal["agent_switch", "progress", "tool_call",
-                  "tool_result", "final", "error"]
+                  "tool_result", "needs_human", "final", "error"]
     data: dict[str, Any]
 
 
@@ -27,3 +33,4 @@ class Capabilities(BaseModel):
     agents: list[dict]
     tools: list[dict]
     skills: list[dict]
+    mcp: list[dict] = []

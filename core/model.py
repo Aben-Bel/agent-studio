@@ -23,7 +23,15 @@ def complete(messages, functions=None, system=""):
 
 # ---------------- offline mock (emulates tool use) ----------------
 def _called(messages):
-    return {m.get("name") for m in messages if m.get("role") == "tool"}
+    # Only count tools used SINCE the last human message, so each new chat turn
+    # can use its tools again (e.g. fetch a FRESH joke) instead of treating an
+    # earlier turn's calls as already done.
+    turn = messages
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            turn = messages[i:]
+            break
+    return {m.get("name") for m in turn if m.get("role") == "tool"}
 
 
 def _last_tool_result(messages):
@@ -100,7 +108,15 @@ def _to_bedrock_messages(messages):
         elif role == "assistant":
             bm.append({"role": "assistant", "content": [{"text": m.get("content", "")}]})
         elif role == "tool":
-            bm.append({"role": "user", "content": [
-                {"toolResult": {"toolUseId": m["tool_call_id"],
-                                "content": [{"text": m["content"]}]}}]})
+            block = {"toolResult": {"toolUseId": m["tool_call_id"],
+                                    "content": [{"text": m["content"]}]}}
+            # Bedrock requires every toolResult for a single assistant turn to
+            # live in ONE user message. When the model calls multiple tools at
+            # once, append to the existing toolResult turn instead of starting a
+            # new one (otherwise Converse 400s: "Expected toolResult blocks...").
+            if bm and bm[-1]["role"] == "user" \
+                    and all("toolResult" in b for b in bm[-1]["content"]):
+                bm[-1]["content"].append(block)
+            else:
+                bm.append({"role": "user", "content": [block]})
     return bm

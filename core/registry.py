@@ -21,3 +21,4 @@ class Registry:
 AGENTS = Registry("agents")
 TOOLS = Registry("tools")
 SKILLS = Registry("skills")
+MCP = Registry("mcp")
