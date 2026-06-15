@@ -7,7 +7,7 @@ import { runChat, addContext } from "../api.js";
 export default function ChatPanel({ agentName, chatId, onBack }) {
   const [messages, setMessages] = useState([]);
   const [events, setEvents] = useState([]);
-  const [input, setInput] = useState("Tell me a joke");
+  const [input, setInput] = useState("Why is yield dropping on the lithography step?");
   const [busy, setBusy] = useState(false);
   const [awaiting, setAwaiting] = useState(null); // pending human question
   const [ctx, setCtx] = useState("");
@@ -59,17 +59,17 @@ export default function ChatPanel({ agentName, chatId, onBack }) {
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
-        {onBack && <button onClick={onBack}>← Setup</button>}
+        {onBack && <button onClick={onBack}>← Overview</button>}
         <span className="muted">
-          Agent: <strong>{agentName}</strong>
-          <span className="chatid"> · chat {chatId.slice(0, 8)}</span>
+          Investigation · agent <strong>{agentName}</strong>
+          <span className="chatid"> · {chatId.slice(0, 8)}</span>
         </span>
       </div>
 
       <div className="chat-grid">
         <div className="messages">
           {messages.length === 0 && (
-            <div className="muted small">Say hello, or ask for a joke.</div>
+            <div className="muted small">Describe a defect or yield drop to investigate.</div>
           )}
           {messages.map((m, i) => (
             <div key={i} className={"msg " + m.role + (m.pending ? " pendingq" : "")}>

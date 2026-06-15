@@ -54,22 +54,22 @@ export default function DataStep({ onContinue, continueLabel = "Continue" }) {
 
   return (
     <div className="card">
-      <h2>Add your data</h2>
+      <h2>Connect your data</h2>
       <p className="muted">
-        Upload spreadsheets and documents, or connect a live database. CSVs become
-        queryable tables, PDFs/notes become searchable knowledge, and database URLs
-        are connected as live sources.
+        Bring in defect / process datasets (CSV → queryable tables), equipment manuals
+        and FMEA documents (PDF/MD → searchable knowledge), and live process-parameter
+        databases (Postgres/MySQL URL). Everything becomes a source the analysis can use.
       </p>
 
       <label className="drop">
         <input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={handleFiles} />
-        {busy ? "Uploading…" : "Choose files — CSV, PDF, TXT, MD (you can pick many)"}
+        {busy ? "Uploading…" : "Upload defect data (CSV) or manuals (PDF, MD) — pick many"}
       </label>
 
       <div className="db-row">
         <input
           className="grow"
-          placeholder="Database URL  e.g. postgresql://user:pass@host:5432/dbname"
+          placeholder="Process-parameter DB URL  e.g. postgresql://user:pass@host:5432/fab"
           value={dbUrl}
           onChange={(e) => setDbUrl(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addDb()}
@@ -118,7 +118,8 @@ export default function DataStep({ onContinue, continueLabel = "Continue" }) {
         </div>
       )}
       <p className="hint">
-        Sample jokes and policy are preloaded — you can skip this and just chat.
+        A sample wafer-defect dataset and a process manual are preloaded — you can start
+        an investigation right away.
       </p>
     </div>
   );

@@ -7,3 +7,4 @@ sqlalchemy>=2.0
 pandas>=2.2
 psycopg2-binary>=2.9   # Postgres driver for connect-db / DATABASE_URL
 pypdf>=4.0             # PDF text extraction for uploads
+pytest>=8.0            # test runner

@@ -8,9 +8,10 @@ export default function AgentBuilder({ caps, advanced, onCreated }) {
   const callable = [...(caps.tools || []), ...(caps.skills || [])];
   const defaults = callable.map((c) => c.name).filter((n) => n !== "echo");
 
-  const [name, setName] = useState("my_assistant");
+  const [name, setName] = useState("my_rca_agent");
   const [persona, setPersona] = useState(
-    "You are a friendly, helpful assistant. Be concise and warm."
+    "You are a yield-analysis assistant. Investigate the likely root cause of a defect "
+    + "using the available tools, and cite the data and documents you used."
   );
   const [picked, setPicked] = useState(defaults);
   const [busy, setBusy] = useState(false);

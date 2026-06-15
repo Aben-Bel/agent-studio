@@ -69,13 +69,17 @@ def connect_db(url, name=None):
             "tables": inspect(eng).get_table_names()}
 
 
+# Platform-internal tables — hidden from /sources so users only see THEIR data.
+_INTERNAL_TABLES = {"doc_chunks", "documents", "runs", "run_steps"}
+
+
 def list_sources():
-    """Every connected source and the tables in it (for /sources and tooling)."""
+    """Every connected source and the (user) tables in it (for /sources and tooling)."""
     _engine("local")                         # make sure local is always present
     out = []
     for name, eng in _ENGINES.items():
         try:
-            tables = inspect(eng).get_table_names()
+            tables = [t for t in inspect(eng).get_table_names() if t not in _INTERNAL_TABLES]
         except Exception:
             tables = []
         out.append({"name": name, "dialect": eng.dialect.name, "tables": tables})

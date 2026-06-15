@@ -42,24 +42,38 @@ def _last_tool_result(messages):
 
 
 def _mock(messages, functions, system):
-    names = [f["name"] for f in functions]
+    """Domain-agnostic offline stand-in. It walks the agent's tools once each
+    (filling required args best-effort from the user's message), then delivers a
+    summary. This lets ANY agent's wiring be demonstrated offline — it is NOT the
+    real reasoning agent, just a deterministic emulation of tool use."""
     done = _called(messages)
     user_text = next((m["content"] for m in reversed(messages)
-                      if m.get("role") == "user"), "").lower()
-    last = _last_tool_result(messages)
+                      if m.get("role") == "user"), "")
 
-    # 1) if asked about policy/rules, check policy first
-    if "search_policy" in names and "search_policy" not in done \
-            and any(w in user_text for w in ("policy", "allowed", "rule", "offensive")):
-        return Resp(tool_calls=[_call("search_policy", {"query": user_text[:60]})])
-    # 2) get a raw joke from the connector
-    if "get_random_joke" in names and "get_random_joke" not in done:
-        return Resp(tool_calls=[_call("get_random_joke", {})])
-    # 3) punch it up with the persona via a skill
-    if "punch_up" in names and "punch_up" not in done and last:
-        return Resp(tool_calls=[_call("punch_up", {"raw_joke": last, "style": system[:80]})])
-    # 4) deliver
-    return Resp(content=last or "I am fresh out of jokes for now.")
+    for f in functions:
+        n = f["name"]
+        if n in done or n == "ask_human":         # ask_human only when explicitly wanted
+            continue
+        return Resp(tool_calls=[_call(n, _mock_args(f, user_text))])
+
+    used = [m for m in messages if m.get("role") == "tool"]
+    if used:
+        return Resp(content="Investigation skeleton complete — the steps above show the "
+                            "tools and data the RCA agent will use. (Reasoning agent not "
+                            "implemented yet; this is the wired skeleton running offline.)")
+    return Resp(content="No tools available; nothing to run.")
+
+
+def _mock_args(spec, user_text):
+    """Fill a tool's required args best-effort so the offline walk-through runs."""
+    schema = spec.get("schema", {}) or {}
+    props = schema.get("properties", {}) or {}
+    required = schema.get("required", list(props.keys()))
+    args = {}
+    for p in required:
+        typ = (props.get(p) or {}).get("type", "string")
+        args[p] = user_text[:120] if typ == "string" else (0 if typ in ("integer", "number") else "")
+    return args
 
 
 def _call(name, args):

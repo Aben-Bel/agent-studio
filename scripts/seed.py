@@ -1,8 +1,14 @@
-"""Load the sample data so the demo works before any upload."""
+"""Seed the sample data so the platform demos before any upload:
+- the semiconductor wafer/defect dataset -> a queryable SQL table
+- the failure-mode manual -> the vector RAG store (via the ingestion pipeline)
+"""
 import os
-from connectors import datastore, memory
+from core.discovery import discover
+from connectors import datastore
+from core import pipeline
 
-# Sample files live in data/sources (preferred) or sources/ — use whichever exists.
+discover()   # register pipeline @stage files so run_pending actually indexes
+
 SEARCH_DIRS = ["data/sources", "sources"]
 
 
@@ -14,18 +20,22 @@ def _find(name):
     return None
 
 
-jokes_csv = _find("jokes.csv")
-if jokes_csv:
-    info = datastore.load_csv(jokes_csv, "jokes")
-    print(f"loaded {info['rows']} jokes into the '{info['table']}' table")
+# 1) defect / process dataset -> SQL table the RCA tools query
+wafer = _find("semiconductor_wafer_defect_dataset.csv")
+if wafer:
+    info = datastore.load_csv(wafer, "wafer_defects")
+    print(f"loaded {info['rows']} rows into the 'wafer_defects' table")
 else:
-    print("no jokes.csv found; the joke tool will fall back to built-ins")
+    print("no wafer dataset found; correlate_params_vs_yield will have no data")
 
-for name in ("joke_manual.txt", "joke_policy.txt"):
+# 2) manuals / FMEA docs -> RAG (run through the same pipeline as an upload)
+for name in ("fab_process_manual.md",):
     path = _find(name)
     if not path:
         print(f"skipped {name} (not found)")
         continue
     with open(path, encoding="utf-8", errors="ignore") as f:
-        memory.add_document(f.read(), name)
-    print(f"indexed {name}")
+        pipeline.add_upload(name, f.read())
+    print(f"queued {name} for indexing")
+processed = pipeline.run_pending()
+print(f"indexed {len(processed)} document(s) into the RAG store")

@@ -1,6 +1,6 @@
 import inspect
 from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES
-from . import model, pipeline
+from . import model, pipeline, runs
 from .config import cfg
 
 
@@ -35,7 +35,8 @@ def capabilities():
     return {
         "agents": [{"name": a.name, "description": a.description, "tools": a.tools}
                    for a in AGENTS.all().values()],
-        "tools": [{"name": t.name, "description": t.description}
+        "tools": [{"name": t.name, "description": t.description,
+                   "version": t.version, "owner": t.owner, "tags": t.tags}
                   for t in TOOLS.all().values()],
         "skills": [{"name": s.name, "description": s.description}
                    for s in SKILLS.all().values()],
@@ -51,8 +52,11 @@ def _specs(names):
     for n in names:
         if n in TOOLS.all():
             t = TOOLS.get(n)
-            out.append({"name": t.name, "description": t.description,
-                        "schema": t.args.model_json_schema()})
+            spec = {"name": t.name, "description": t.description,
+                    "schema": t.args.model_json_schema()}
+            if t.returns is not None:
+                spec["returns"] = t.returns.model_json_schema()
+            out.append(spec)
         elif n in SKILLS.all():
             s = SKILLS.get(n)
             out.append({"name": s.name, "description": s.description,
@@ -155,10 +159,13 @@ def start_or_resume(chat_id, agent_name, message):
     sess = SESSIONS.get(chat_id)
     if sess is None:
         sess = _new_session(chat_id, agent_name)
+        runs.start_run(chat_id, agent_name)
         agent = AGENTS.get(agent_name)
-        yield {"type": "agent_switch",
-               "data": {"agent": agent.name, "description": agent.description,
-                        "chat_id": chat_id}}
+        ev = {"type": "agent_switch",
+              "data": {"agent": agent.name, "description": agent.description,
+                       "chat_id": chat_id}}
+        runs.record(chat_id, ev)
+        yield ev
 
     if sess.get("pending"):
         # Resuming a human-in-the-loop pause: the reply is the tool's result.
@@ -167,8 +174,13 @@ def start_or_resume(chat_id, agent_name, message):
                              "tool_call_id": p["tool_call_id"], "content": message})
     else:
         sess["msgs"].append({"role": "user", "content": message})
+        runs.record(chat_id, {"type": "user_message", "data": {"text": message}})
 
-    yield from _drive(sess)
+    # Every streamed event is persisted to the audit trail (full visibility).
+    for ev in _drive(sess):
+        runs.record(chat_id, ev)
+        yield ev
+    runs.finish_run(chat_id, sess["status"])
 
 
 def add_context(chat_id, text):

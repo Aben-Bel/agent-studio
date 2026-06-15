@@ -32,14 +32,21 @@ def register_custom_agent(name, description, system, tools):
 class ToolDecl:
     name: str
     description: str
-    args: Type[BaseModel]
+    args: Type[BaseModel]                 # input schema (typed)
     fn: Callable
+    returns: Type[BaseModel] = None       # optional output schema
+    version: str = "2026-06-15"           # date-string version (MCP-style)
+    owner: str = ""                       # who owns/maintains this tool
+    tags: list = field(default_factory=list)
 
 
-def tool(name, description, args):
-    """Declare a tool. args is a pydantic model = typed signature + JSON schema."""
+def tool(name, description, args, returns=None, version="2026-06-15", owner="", tags=None):
+    """Declare a tool. `args` is a pydantic model = typed signature + JSON schema.
+    Optionally give an output schema (`returns`), a `version`, and an `owner` so the
+    registry stays trustworthy as many people add tools."""
     def deco(fn):
-        TOOLS.register(name)(ToolDecl(name, description, args, fn))
+        TOOLS.register(name)(ToolDecl(name, description, args, fn, returns,
+                                      version, owner, tags or []))
         return fn
     return deco
 

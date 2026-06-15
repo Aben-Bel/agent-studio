@@ -1,130 +1,118 @@
 import React, { useEffect, useState } from "react";
+import Dashboard from "./components/Dashboard.jsx";
 import DataStep from "./components/DataStep.jsx";
 import AgentBuilder from "./components/AgentBuilder.jsx";
 import ChatPanel from "./components/ChatPanel.jsx";
-import { getCapabilities } from "./api.js";
+import { getCapabilities, getRun } from "./api.js";
 
-// ---- URL as navigation state (refresh / back / deep-link all restore the view)
+// ---- URL as navigation state (refresh / back / deep-link restore the view) ----
 function readUrl() {
   const p = new URLSearchParams(location.search);
   return {
-    god: p.get("god") === "1",
-    view: p.get("view") || "data", // data | agent | capabilities | chat
-    agent: p.get("agent") || "joker",
+    admin: p.get("admin") === "1",
+    view: p.get("view") || "overview",
+    agent: p.get("agent") || "rca_assistant",
     chat: p.get("chat") || "",
+    run: p.get("run") || "",
   };
 }
 function writeUrl(s) {
   const p = new URLSearchParams();
-  if (s.god) p.set("god", "1");
+  if (s.admin) p.set("admin", "1");
   p.set("view", s.view);
   p.set("agent", s.agent);
   if (s.chat) p.set("chat", s.chat);
+  if (s.run) p.set("run", s.run);
   history.replaceState(null, "", "?" + p.toString());
 }
 const newChatId = () =>
-  crypto.randomUUID ? crypto.randomUUID() : "chat-" + Math.floor(performance.now());
-
-const SIMPLE_STEPS = [
-  ["data", "Add data"],
-  ["agent", "Persona"],
-  ["chat", "Chat"],
-];
-const GOD_TABS = [
-  ["data", "Data sources"],
-  ["agent", "Build agent"],
-  ["capabilities", "Capabilities"],
-  ["chat", "Chat"],
-];
+  crypto.randomUUID ? crypto.randomUUID() : "inv-" + Math.floor(performance.now());
 
 export default function App() {
   const init = readUrl();
-  const [god, setGod] = useState(init.god);
-  const [view, setView] = useState(init.view === "capabilities" && !init.god ? "data" : init.view);
+  const [admin, setAdmin] = useState(init.admin);
+  const [view, setView] = useState(init.view);
   const [agent, setAgent] = useState(init.agent);
   const [chat, setChat] = useState(init.chat || newChatId());
-  const [caps, setCaps] = useState({ agents: [], tools: [], skills: [], mcp: [] });
+  const [run, setRun] = useState(init.run);
+  const [caps, setCaps] = useState({ agents: [], tools: [], skills: [], mcp: [], stages: [] });
 
   useEffect(() => {
     getCapabilities().then(setCaps).catch(() => {});
   }, [view]);
   useEffect(() => {
-    writeUrl({ god, view, agent, chat });
-  }, [god, view, agent, chat]);
+    writeUrl({ admin, view, agent, chat, run });
+  }, [admin, view, agent, chat, run]);
 
-  function startChatWith(name) {
-    setAgent(name);
-    setChat(newChatId());
-    setView("chat");
-  }
-  function chatNow() {
-    setChat(newChatId());
-    setView("chat");
-  }
+  const TABS = [
+    ["overview", "Overview"],
+    ["data", "Data sources"],
+    ["investigate", "Investigate"],
+    ["capabilities", "Capabilities"],
+    ...(admin ? [["agent", "Build agent"]] : []),
+  ];
 
-  const tabs = god ? GOD_TABS : SIMPLE_STEPS;
+  function go(v) {
+    setRun("");
+    setView(v);
+  }
+  function newInvestigation(name) {
+    if (name) setAgent(name);
+    setChat(newChatId());
+    setRun("");
+    setView("investigate");
+  }
+  function openRun(chatId) {
+    setRun(chatId);
+    setView("trace");
+  }
 
   return (
     <div className="app">
       <header>
         <div className="brand">
-          <h1>Agent Studio</h1>
-          <span className="sub">build a chat assistant on your own data</span>
+          <h1>Yield Analysis</h1>
+          <span className="sub">Root-Cause Analysis Platform · full visibility</span>
         </div>
         <div className="head-right">
-          <button className="ghost" onClick={chatNow}>Chat now</button>
-          <label className="godswitch" title="Turn on to configure everything">
-            <input type="checkbox" checked={god} onChange={(e) => {
-              setGod(e.target.checked);
-              if (!e.target.checked && view === "capabilities") setView("data");
+          <button className="ghost" onClick={() => newInvestigation()}>New investigation</button>
+          <label className="godswitch" title="Show configuration / agent building">
+            <input type="checkbox" checked={admin} onChange={(e) => {
+              setAdmin(e.target.checked);
+              if (!e.target.checked && view === "agent") setView("overview");
             }} />
             <span className="slider" />
-            <span className="godlabel">God mode</span>
+            <span className="godlabel">Admin</span>
           </label>
         </div>
       </header>
 
       <nav className="tabs">
-        {tabs.map(([key, label], i) => (
-          <button
-            key={key}
-            className={"pill" + (view === key ? " on" : "")}
-            onClick={() => setView(key)}
-          >
-            {god ? "" : `${i + 1}. `}{label}
+        {TABS.map(([key, label]) => (
+          <button key={key} className={"pill" + (view === key ? " on" : "")} onClick={() => go(key)}>
+            {label}
           </button>
         ))}
       </nav>
 
       <main>
-        {view === "data" && (
-          <DataStep
-            onContinue={god ? null : () => setView("agent")}
-            continueLabel="Next: persona"
-          />
+        {view === "overview" && <Dashboard caps={caps} onGo={go} onOpenRun={openRun} />}
+        {view === "data" && <DataStep />}
+        {view === "capabilities" && <CapabilitiesView caps={caps} />}
+        {view === "investigate" && (
+          <ChatPanel agentName={agent} chatId={chat} onBack={() => go("overview")} />
         )}
-
-        {view === "agent" && (
+        {view === "agent" && admin && (
           <div className="card">
-            <h2>{god ? "Build an agent" : "Describe your assistant"}</h2>
+            <h2>Build an investigation agent</h2>
             <p className="muted">
-              {god
-                ? "Write a persona and pick exactly which tools and skills it may use."
-                : "A persona is all it takes — your assistant gets every capability automatically."}
+              Write a persona and choose exactly which tools it may use. Registered live and
+              routable immediately — the real RCA reasoning agent will be built on this seam.
             </p>
-            <AgentBuilder caps={caps} advanced={god} onCreated={startChatWith} />
+            <AgentBuilder caps={caps} advanced onCreated={newInvestigation} />
           </div>
         )}
-
-        {view === "capabilities" && god && <CapabilitiesView caps={caps} />}
-
-        {view === "chat" && (
-          <ChatPanel
-            agentName={agent}
-            chatId={chat}
-            onBack={() => setView(god ? "agent" : "data")}
-          />
-        )}
+        {view === "trace" && <RunTrace chatId={run} onBack={() => go("overview")} />}
       </main>
     </div>
   );
@@ -142,18 +130,21 @@ function CapabilitiesView({ caps }) {
     <div className="card">
       <h2>Everything the platform can do</h2>
       <p className="muted">
-        Auto-discovered from the backend. Drop a new file in <code>agents/</code>,{" "}
-        <code>tools/</code>, <code>skills/</code>, or <code>mcp/</code> (any subfolder)
-        and it shows up here — no shared file to edit, no merge conflicts.
+        Auto-discovered from the backend. Drop a file in <code>agents/</code>, <code>tools/</code>,{" "}
+        <code>skills/</code>, <code>mcp/</code>, or <code>pipeline/</code> (any subfolder) and it
+        shows up here — no shared file to edit, no merge conflicts.
       </p>
       <Section title="Agents" items={caps.agents} render={(a) => (
-        <div key={a.name} className="capitem">
-          <strong>{a.name}</strong><span className="muted small"> {a.description}</span>
-        </div>
+        <div key={a.name} className="capitem"><strong>{a.name}</strong>
+          <span className="muted small"> {a.description}</span></div>
       )} />
       <Section title="Tools" items={caps.tools} render={(t) => (
-        <div key={t.name} className="capitem"><code>{t.name}</code>
-          <span className="muted small"> {t.description}</span></div>
+        <div key={t.name} className="capitem">
+          <code>{t.name}</code>
+          {t.owner && <span className="ownertag">{t.owner}</span>}
+          {t.version && <span className="vertag">v{t.version}</span>}
+          <span className="muted small"> {t.description}</span>
+        </div>
       )} />
       <Section title="Skills" items={caps.skills} render={(s) => (
         <div key={s.name} className="capitem"><code>{s.name}</code>
@@ -169,4 +160,45 @@ function CapabilitiesView({ caps }) {
       )} />
     </div>
   );
+}
+
+function RunTrace({ chatId, onBack }) {
+  const [trace, setTrace] = useState(null);
+  useEffect(() => {
+    getRun(chatId).then(setTrace).catch(() => setTrace({ steps: [] }));
+  }, [chatId]);
+  return (
+    <div className="card">
+      <div className="chat-head">
+        <button onClick={onBack}>← Overview</button>
+        <span className="muted">Investigation trace · <strong>{chatId.slice(0, 8)}</strong></span>
+      </div>
+      {!trace && <div className="muted small">loading…</div>}
+      {trace && trace.steps.length === 0 && <div className="muted small">no steps recorded</div>}
+      <div className="trace">
+        {trace?.steps.map((s) => (
+          <div key={s.seq} className={"ev " + s.type}>
+            <span className="tag">{s.type}</span>
+            <span className="evtext">{traceText(s)}</span>
+            <span className="muted small tracets">{(s.ts || "").replace("T", " ").slice(11, 19)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function traceText(s) {
+  const d = s.data || {};
+  switch (s.type) {
+    case "agent_switch": return `routed to ${d.agent}`;
+    case "user_message": return d.text;
+    case "tool_call": return `${d.name}(${JSON.stringify(d.args || {})})`;
+    case "tool_result": return `${d.name} → ${d.result}`;
+    case "needs_human": return `asked: ${d.question}`;
+    case "context_added": return `context: ${d.text}`;
+    case "final": return d.message;
+    case "error": return d.message;
+    default: return JSON.stringify(d);
+  }
 }

@@ -1,0 +1,56 @@
+"""Investigations: run an agent (streamed), manage sessions, add context, agents."""
+import json
+
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
+
+from core import orchestrator
+from core.declare import register_custom_agent
+from core.schemas import RunRequest, CreateAgentRequest, AddContextRequest
+
+router = APIRouter()
+
+
+@router.post("/run")
+def run(req: RunRequest):
+    """Run an agent. Streams orchestrator events as Server-Sent Events.
+
+    Pass a `chat_id` to keep a stateful, resumable session: the orchestrator
+    remembers the conversation, persists every step to the audit trail, can pause
+    for human input (a `needs_human` event), and continues where it left off when
+    you POST again with the same `chat_id`. Without a `chat_id` it runs once."""
+    def gen():
+        if req.chat_id:
+            stream = orchestrator.start_or_resume(req.chat_id, req.agent, req.message)
+        else:
+            stream = orchestrator.run(req.agent, req.message, req.history)
+        for ev in stream:
+            yield f"data: {json.dumps(ev)}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.post("/agents")
+def create_agent(req: CreateAgentRequest):
+    """Create a custom agent from a persona. Registered live and immediately
+    routable and visible in /capabilities."""
+    register_custom_agent(req.name, req.description, req.persona, req.tools)
+    return {"created": req.name}
+
+
+@router.get("/sessions")
+def sessions_list():
+    """All known sessions and where each one is (idle / awaiting_human / done)."""
+    return {"sessions": orchestrator.list_sessions()}
+
+
+@router.get("/sessions/{chat_id}")
+def session_state(chat_id: str):
+    """Restore a session: its transcript, status, and any pending question."""
+    return orchestrator.session_state(chat_id)
+
+
+@router.post("/sessions/{chat_id}/context")
+def add_context(chat_id: str, req: AddContextRequest):
+    """Add context to a session WHILE it runs. Queued on the session; the
+    orchestrator picks it up on its next step — smooth catch-up, no restart."""
+    return orchestrator.add_context(chat_id, req.text)

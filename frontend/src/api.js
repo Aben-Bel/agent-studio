@@ -37,6 +37,24 @@ export async function getSources() {
   return r.json();
 }
 
+// Ingestion pipeline status (pending vs done documents + stages).
+export async function getProcessStatus() {
+  const r = await fetch(`${BASE}/process/status`);
+  return r.json();
+}
+
+// The investigation audit trail (every run).
+export async function getRuns() {
+  const r = await fetch(`${BASE}/runs`);
+  return r.json();
+}
+
+// Full persisted trace of one investigation.
+export async function getRun(chatId) {
+  const r = await fetch(`${BASE}/runs/${encodeURIComponent(chatId)}`);
+  return r.json();
+}
+
 // Restore a chat session (transcript, status, pending question).
 export async function getSession(chatId) {
   const r = await fetch(`${BASE}/sessions/${encodeURIComponent(chatId)}`);
