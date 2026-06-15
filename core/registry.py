@@ -22,3 +22,4 @@ AGENTS = Registry("agents")
 TOOLS = Registry("tools")
 SKILLS = Registry("skills")
 MCP = Registry("mcp")
+STAGES = Registry("stages")   # document-processing pipeline steps

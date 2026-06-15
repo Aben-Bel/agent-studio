@@ -24,9 +24,13 @@ class ConnectDbRequest(BaseModel):
 
 # ---- Streamed event model (documented even though it flows over SSE) ----
 class Event(BaseModel):
-    type: Literal["agent_switch", "progress", "tool_call",
-                  "tool_result", "needs_human", "final", "error"]
+    type: Literal["agent_switch", "progress", "tool_call", "tool_result",
+                  "needs_human", "context_added", "final", "error"]
     data: dict[str, Any]
+
+
+class AddContextRequest(BaseModel):
+    text: str                       # extra context to feed an in-progress chat
 
 
 class Capabilities(BaseModel):
@@ -34,3 +38,4 @@ class Capabilities(BaseModel):
     tools: list[dict]
     skills: list[dict]
     mcp: list[dict] = []
+    stages: list[dict] = []     # document-processing pipeline steps

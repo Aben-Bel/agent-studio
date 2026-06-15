@@ -1,6 +1,6 @@
 import inspect
-from .registry import AGENTS, TOOLS, SKILLS, MCP
-from . import model
+from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES
+from . import model, pipeline
 from .config import cfg
 
 
@@ -41,6 +41,8 @@ def capabilities():
                    for s in SKILLS.all().values()],
         "mcp": [{"name": m.name, "description": m.description, "config": m.config}
                 for m in MCP.all().values()],
+        "stages": [{"name": s.name, "order": s.order, "description": s.description}
+                   for s in sorted(STAGES.all().values(), key=lambda x: x.order)],
     }
 
 
@@ -78,7 +80,7 @@ def _new_session(chat_id, agent_name):
     agent = AGENTS.get(agent_name)
     system = agent.fn({}) if callable(agent.fn) else ""
     sess = {"chat_id": chat_id, "agent": agent_name, "system": system,
-            "msgs": [], "status": "idle", "pending": None, "step": 0}
+            "msgs": [], "status": "idle", "pending": None, "step": 0, "inbox": []}
     SESSIONS[chat_id] = sess
     return sess
 
@@ -92,6 +94,17 @@ def _drive(sess):
     sess["status"] = "running"
 
     while sess["step"] < cfg.max_steps:
+        # Catch up on any context the user added since the last step. The inbox is
+        # drained at a clean point (between tool rounds), so a running agent picks
+        # up new uploads/notes on its next step without breaking the conversation.
+        if sess.get("inbox"):
+            new, sess["inbox"] = sess["inbox"], []
+            for c in new:
+                sess["msgs"].append({"role": "user",
+                                     "content": f"[Additional context the user just added]\n{c}"})
+                yield {"type": "context_added",
+                       "data": {"text": c[:200], "chat_id": sess.get("chat_id")}}
+
         sess["step"] += 1
         yield {"type": "progress", "data": {"message": f"reasoning (step {sess['step']})"}}
         try:
@@ -158,6 +171,23 @@ def start_or_resume(chat_id, agent_name, message):
     yield from _drive(sess)
 
 
+def add_context(chat_id, text):
+    """Add context to a session WHILE it may be running. It lands in the session
+    inbox and is drained on the orchestrator's next step (or next turn), so the
+    agent smoothly catches up. Also sweeps any pending uploads so freshly added
+    documents are indexed and immediately searchable."""
+    try:
+        pipeline.run_pending()
+    except Exception:
+        pass
+    sess = SESSIONS.get(chat_id)
+    if sess is None:
+        return {"ok": False, "error": f"no session '{chat_id}'"}
+    if (text or "").strip():
+        sess.setdefault("inbox", []).append(text.strip())
+    return {"ok": True, "queued": len(sess.get("inbox", [])), "status": sess["status"]}
+
+
 def session_state(chat_id):
     """UI-friendly snapshot so the frontend can restore a chat (what it said,
     its status, and any pending question it stopped on)."""
@@ -202,7 +232,7 @@ def run(agent_name, message, history=None):
     system = agent.fn({}) if callable(agent.fn) else ""
     sess = {"chat_id": None, "agent": agent_name, "system": system,
             "msgs": list(history or []) + [{"role": "user", "content": message}],
-            "status": "running", "pending": None, "step": 0}
+            "status": "running", "pending": None, "step": 0, "inbox": []}
     yield {"type": "agent_switch",
            "data": {"agent": agent.name, "description": agent.description}}
     yield from _drive(sess)

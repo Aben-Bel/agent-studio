@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { runChat } from "../api.js";
+import { runChat, addContext } from "../api.js";
 
 // Stateful chat: every turn carries the same chat_id, so the orchestrator
 // remembers the conversation, streams each step live, can PAUSE to ask the
@@ -10,7 +10,21 @@ export default function ChatPanel({ agentName, chatId, onBack }) {
   const [input, setInput] = useState("Tell me a joke");
   const [busy, setBusy] = useState(false);
   const [awaiting, setAwaiting] = useState(null); // pending human question
+  const [ctx, setCtx] = useState("");
+  const [ctxNote, setCtxNote] = useState("");
   const feedRef = useRef(null);
+
+  async function pushContext() {
+    if (!ctx.trim()) return;
+    const r = await addContext(chatId, ctx.trim());
+    setCtx("");
+    setCtxNote(
+      r.ok
+        ? `added — the agent will use it ${busy ? "on its next step" : "next turn"}`
+        : r.error || "could not add context"
+    );
+    setTimeout(() => setCtxNote(""), 4000);
+  }
 
   useEffect(() => {
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
@@ -89,6 +103,17 @@ export default function ChatPanel({ agentName, chatId, onBack }) {
           {awaiting ? "Reply" : "Send"}
         </button>
       </div>
+
+      <div className="row addctx">
+        <input
+          value={ctx}
+          onChange={(e) => setCtx(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && pushContext()}
+          placeholder="Add context anytime (even while it's working)…"
+        />
+        <button onClick={pushContext}>Add context</button>
+      </div>
+      {ctxNote && <div className="ctxnote">{ctxNote}</div>}
     </div>
   );
 }
@@ -106,6 +131,8 @@ function renderEvent(ev) {
       return `${d.name} → ${d.result}`;
     case "needs_human":
       return `paused — asking: ${d.question}`;
+    case "context_added":
+      return `caught up on new context: ${d.text}`;
     case "final":
       return "done";
     case "error":

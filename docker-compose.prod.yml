@@ -1,0 +1,7 @@
+# Production override for the EC2 deploy: serve the frontend on port 80 so the
+# app is reachable at http://<public-ip>/ . Used by the Terraform deploy via:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  frontend:
+    ports:
+      - "80:80"

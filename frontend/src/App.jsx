@@ -163,6 +163,10 @@ function CapabilitiesView({ caps }) {
         <div key={m.name} className="capitem"><code>{m.name}</code>
           <span className="muted small"> {m.description}</span></div>
       )} />
+      <Section title="Pipeline stages (upload → …)" items={caps.stages || []} render={(s) => (
+        <div key={s.name} className="capitem"><code>{s.order}. {s.name}</code>
+          <span className="muted small"> {s.description}</span></div>
+      )} />
     </div>
   );
 }

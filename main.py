@@ -6,9 +6,9 @@ from fastapi.responses import StreamingResponse
 from core.config import cfg
 from core.discovery import discover
 from core.declare import register_custom_agent
-from core import orchestrator
+from core import orchestrator, pipeline
 from core.schemas import (RunRequest, CreateAgentRequest, ConnectDbRequest,
-                          Capabilities, Event)
+                          AddContextRequest, Capabilities, Event)
 from core.util import log
 from connectors import datastore
 from connectors.ingest import ingest
@@ -25,7 +25,7 @@ if cfg.database_url:
     except Exception as e:
         log.warning("DATABASE_URL could not be connected: %s", e)
 
-app = FastAPI(title="Joke Platform API",
+app = FastAPI(title="Platform API",
               description="Auto-discovered agents, tools, skills. "
                           "Frontend builds against this OpenAPI spec.",
               version="1.0.0")
@@ -125,6 +125,19 @@ def sources():
     return {"sources": datastore.list_sources()}
 
 
+@app.post("/process")
+def process():
+    """Run the document pipeline over any pending uploads (the sweep). Returns
+    what was processed. Idempotent — safe to call anytime to catch leftovers."""
+    return {"processed": pipeline.run_pending()}
+
+
+@app.get("/process/status")
+def process_status():
+    """Pipeline status: how many documents are pending vs done, and the stages."""
+    return pipeline.status()
+
+
 @app.post("/agents")
 def create_agent(req: CreateAgentRequest):
     """Create a custom agent from a persona (the wizard uses this). It is
@@ -162,6 +175,14 @@ def session_state(chat_id: str):
     """Restore a chat: its transcript, status, and any pending question it
     paused on. Lets the frontend reopen a session exactly where it stopped."""
     return orchestrator.session_state(chat_id)
+
+
+@app.post("/sessions/{chat_id}/context")
+def add_context(chat_id: str, req: AddContextRequest):
+    """Add context to a chat WHILE it runs. It's queued on the session and the
+    orchestrator picks it up on its next step (or next turn) — smooth catch-up,
+    no restart. Also sweeps pending uploads so new documents are searchable."""
+    return orchestrator.add_context(chat_id, req.text)
 
 
 # Surfaces the Event schema in OpenAPI so the UI team sees the streamed shape.

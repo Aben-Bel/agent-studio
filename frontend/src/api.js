@@ -43,6 +43,16 @@ export async function getSession(chatId) {
   return r.json();
 }
 
+// Add context to a chat while it runs; the orchestrator catches up on its next step.
+export async function addContext(chatId, text) {
+  const r = await fetch(`${BASE}/sessions/${encodeURIComponent(chatId)}/context`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  return r.json();
+}
+
 // --- Direct-to-S3 upload (file bytes never pass through the backend) ---
 // 1) ask the backend for a presigned URL, 2) PUT the file straight to S3,
 // 3) return {key, get_url, ...} so you can hand the key back to the backend.

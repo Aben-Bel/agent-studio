@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Callable, Type
 from pydantic import BaseModel
-from .registry import AGENTS, TOOLS, SKILLS, MCP
+from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES
 
 
 # ---- AGENT ----
@@ -79,5 +79,31 @@ def mcp(name, description="", **config):
     It self-registers and appears in /capabilities, same as tools/skills/agents."""
     def deco(fn=None):
         MCP.register(name)(McpDecl(name, description, config, fn))
+        return fn
+    return deco
+
+
+# ---- PIPELINE STAGE ----
+@dataclass
+class StageDecl:
+    name: str
+    order: int                   # stages run low -> high
+    fn: Callable                 # fn(doc: dict) -> dict
+    description: str = ""
+
+
+def stage(name, order=50, description=""):
+    """Declare a document-processing stage. Drop a file in pipeline/ like:
+
+        @stage("index", order=20, description="Embed chunks into the RAG store")
+        def index(doc):
+            ...                  # doc has {source, text, ...}; mutate + return it
+            return doc
+
+    Every uploaded document is run through all stages in `order`. Add a stage by
+    dropping a file, reorder by changing the number, remove by deleting it —
+    no shared file to edit, so 8 people extend the pipeline without colliding."""
+    def deco(fn):
+        STAGES.register(name)(StageDecl(name, order, fn, description))
         return fn
     return deco

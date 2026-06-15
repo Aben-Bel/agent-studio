@@ -1,0 +1,10 @@
+# Terraform state + working dirs (state can contain secrets)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Generated artifacts
+app.zip
+*.pem
