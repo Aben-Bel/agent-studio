@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { TraceLanes } from "./Trace.jsx";
 import Modal from "./Modal.jsx";
 import AddAgentModal from "./AddAgentModal.jsx";
+import { useI18n } from "../i18n.jsx";
 import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument } from "../api.js";
 
 const Md = ({ children }) => (
@@ -15,6 +16,7 @@ const Md = ({ children }) => (
 // kept PER TURN so previous turns are never wiped on a reply. One input: while it
 // works your text is ADDED CONTEXT, once it is done it is a REPLY.
 export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, refreshCaps }) {
+  const { t } = useI18n();
   const specialists = (caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent"));
   const allTools = [...(caps.tools || []), ...(caps.skills || [])];
 
@@ -220,11 +222,11 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
-        {onBack && <button onClick={onBack}>Overview</button>}
-        <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? "Hide setup" : "Setup"}</button>
-        <span className="muted">Investigation - {agents.length} agent{agents.length === 1 ? "" : "s"}<span className="chatid"> - {chatId.slice(0, 8)}</span></span>
-        {busy && <button className="stopbtn" onClick={stop}>Stop</button>}
-        <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? "Hide trace" : "Trace"}</button>
+        {onBack && <button onClick={onBack}>{t("overview")}</button>}
+        <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? t("hideSetup") : t("setup")}</button>
+        <span className="muted">{t("investigate")} - {agents.length}<span className="chatid"> - {chatId.slice(0, 8)}</span></span>
+        {busy && <button className="stopbtn" onClick={stop}>{t("stop")}</button>}
+        <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? t("hideTrace") : t("trace")}</button>
       </div>
 
       <div className={"investigate-grid" + (setupOpen ? "" : " no-setup") + (traceOpen ? "" : " no-trace")}>
@@ -232,8 +234,8 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
         {setupOpen && (
         <aside className="setup">
           <div className="setup-sec">
-            <div className="setup-title">Agents <span className="muted small">{agents.length}/{specialists.length}</span>
-              <button className="mini" onClick={() => setShowAddAgent(true)}>+ agent</button>
+            <div className="setup-title">{t("agents")} <span className="muted small">{agents.length}/{specialists.length}</span>
+              <button className="mini" onClick={() => setShowAddAgent(true)}>{t("addAgent")}</button>
             </div>
             <div className="setup-list">
               {specialists.map((a) => (
@@ -246,12 +248,12 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           </div>
 
           <div className="setup-sec">
-            <div className="setup-title">Data sources
-              <button className="mini" onClick={() => setAdding((v) => !v)}>{adding ? "Cancel" : "+ add"}</button>
+            <div className="setup-title">{t("dataSources")}
+              <button className="mini" onClick={() => setAdding((v) => !v)}>{adding ? t("cancel") : t("add")}</button>
             </div>
             {adding && (
               <div className="addsrc">
-                <label className="filebtn">Upload CSV / PDF<input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={addFiles} /></label>
+                <label className="filebtn">{t("uploadFile")}<input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={addFiles} /></label>
                 <div className="db-mini">
                   <input placeholder="postgresql://..." value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addDb()} />
                   <button onClick={addDb}>DB</button>
@@ -291,7 +293,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           </div>
 
           <div className="setup-sec">
-            <div className="setup-title">Tools & skills <span className="muted small">{tools === null ? allTools.length : tools.length}/{allTools.length}</span></div>
+            <div className="setup-title">{t("toolsSkills")} <span className="muted small">{tools === null ? allTools.length : tools.length}/{allTools.length}</span></div>
             <div className="setup-list">
               {allTools.map((t) => (
                 <label key={t.name} className="check" title={t.description}>
@@ -306,7 +308,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
 
         <div className="center">
           <div className="messages" ref={msgRef} onScroll={() => onScroll(msgRef, stickMsg)}>
-            {messages.length === 0 && <div className="muted small">Describe a defect or yield drop. The selected agents investigate in parallel.</div>}
+            {messages.length === 0 && <div className="muted small">{t("describePrompt")}</div>}
             {messages.map((m, i) => (
               m.role === "note"
                 ? <div key={i} className="msgnote">{m.text}</div>
@@ -317,21 +319,21 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             ))}
             {busy && <div className="statusline"><span className="spin" /> {status || "working..."}</div>}
           </div>
-          {awaiting && <div className="askbanner"><strong>The agent needs your input.</strong> Type your answer below and press Reply.</div>}
-          {error && <div className="retrybar">{error}<button onClick={retry}>Retry</button></div>}
+          {awaiting && <div className="askbanner"><strong>{t("needsInput")}</strong> {t("typeAnswer")}</div>}
+          {error && <div className="retrybar">{error}<button onClick={retry}>{t("retry")}</button></div>}
           <div className="row composer">
             <textarea ref={taRef} rows={1} value={input}
               onChange={(e) => { setInput(e.target.value); autoGrow(e.target); }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-              placeholder={busy ? "Add context while it works...  (Shift+Enter = newline)" : awaiting ? "Answer the agent..." : "Ask about a defect or yield drop...  (Shift+Enter = newline)"} />
-            <button className="primary" onClick={submit}>{busy ? "Add context" : awaiting ? "Reply" : "Investigate"}</button>
+              placeholder={busy ? t("contextPlaceholder") : awaiting ? t("answerPlaceholder") : t("askPlaceholder")} />
+            <button className="primary" onClick={submit}>{busy ? t("addContext") : awaiting ? t("reply") : t("investigateBtn")}</button>
           </div>
         </div>
 
         {traceOpen && (
         <aside className="feed" ref={feedRef} onScroll={() => onScroll(feedRef, stickFeed)}>
-          <div className="feed-title">Orchestrator <span className="muted small">- click a step</span></div>
-          {turns.length === 0 && <div className="muted small">steps appear here as the agents work</div>}
+          <div className="feed-title">{t("orchestrator")} <span className="muted small">- {t("clickStep")}</span></div>
+          {turns.length === 0 && <div className="muted small">{t("stepsAppear")}</div>}
           {turns.map((turn, i) => (
             <div key={i} className="turn-block">
               {turn.question && <div className="turn-q" title={turn.question}>{turn.question}</div>}

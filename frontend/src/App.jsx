@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Dashboard from "./components/Dashboard.jsx";
 import ChatPanel from "./components/ChatPanel.jsx";
+import { useI18n } from "./i18n.jsx";
 import { getCapabilities } from "./api.js";
 
 // ---- URL is the source of navigation state. Back/forward/refresh/deep-link all
@@ -50,18 +51,23 @@ export default function App() {
     goTo({ view: "investigate", chat: newChatId(), agents: name && name !== "team" ? [name] : [] });
   const openRun = (chatId) => goTo({ view: "investigate", chat: chatId, agents: [] });
 
+  const { t, lang, setLang } = useI18n();
   const { view, agents, chat } = nav;
-  const TABS = [["overview", "Overview"], ["investigate", "Investigate"]];
+  const TABS = [["overview", t("overview")], ["investigate", t("investigate")]];
 
   return (
     <div className="app app-wide">
       <header>
         <div className="brand">
-          <h1>Yield Analysis</h1>
-          <span className="sub">Root-Cause Analysis Platform - full visibility</span>
+          <h1>{t("title")}</h1>
+          <span className="sub">{t("subtitle")}</span>
         </div>
         <div className="head-right">
-          <button className="ghost" onClick={() => newInvestigation("team")}>New investigation</button>
+          <button className="ghost" onClick={() => newInvestigation("team")}>{t("newInvestigation")}</button>
+          <div className="langtoggle">
+            <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
+            <button className={lang === "de" ? "on" : ""} onClick={() => setLang("de")}>DE</button>
+          </div>
         </div>
       </header>
 
