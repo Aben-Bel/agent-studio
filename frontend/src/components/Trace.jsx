@@ -29,21 +29,21 @@ function Lane({ name, lead, events }) {
   return (
     <div className={"lane" + (lead ? " lead" : "") + " " + status}>
       <div className="lane-head">
-        <span className="lane-name">{lead ? "🧭 " + name : "🤖 " + name}</span>
-        <span className={"lane-status " + status}>{status === "working" ? "working…" : status}</span>
+        <span className="lane-name">{name}</span>
+        <span className={"lane-status " + status}>{status === "working" ? "working..." : status}</span>
       </div>
       {dispatched && (
-        <div className="lane-dispatch">dispatched → {(dispatched.data.agents || []).join(", ")}</div>
+        <div className="lane-dispatch">dispatched to {(dispatched.data.agents || []).join(", ")}</div>
       )}
       <div className="lane-steps">
-        {steps.length === 0 && <div className="muted small">—</div>}
+        {steps.length === 0 && <div className="muted small">-</div>}
         {steps.map((e, i) => <TraceEvent key={i} ev={e} />)}
       </div>
     </div>
   );
 }
 
-// One step in the orchestrator trace. Click to expand full args / result — this
+// One step in the orchestrator trace. Click to expand full args / result - this
 // is the transparency surface. Recruited-agent steps are indented (depth).
 export default function TraceEvent({ ev }) {
   const [open, setOpen] = useState(false);
@@ -57,8 +57,8 @@ export default function TraceEvent({ ev }) {
       : d.role === "resumed" ? `back to ${d.agent}` : `lead ${d.agent}`;
   } else if (ev.type === "progress") head = d.message;
   else if (ev.type === "thinking") head = (d.text || "").replace(/\s+/g, " ").slice(0, 80);
-  else if (ev.type === "tool_call") head = d.kind === "agent" ? `recruit → ${(d.args || {}).agent || ""}` : d.name;
-  else if (ev.type === "tool_result") head = `${d.name} ✓`;
+  else if (ev.type === "tool_call") head = d.kind === "agent" ? `recruit ${(d.args || {}).agent || ""}` : d.name;
+  else if (ev.type === "tool_result") head = `${d.name}`;
   else if (ev.type === "user_message") head = d.text;
   else if (ev.type === "needs_human") head = "needs human";
   else if (ev.type === "context_added") head = "context added";
@@ -73,7 +73,7 @@ export default function TraceEvent({ ev }) {
         <span className="tag">{tag}</span>
         <span className="evtext">{head}</span>
         {ev.ts && <span className="muted small evts">{(ev.ts || "").slice(11, 19)}</span>}
-        {expandable && <span className="caret">{open ? "▾" : "▸"}</span>}
+        {expandable && <span className="caret">{open ? "-" : "+"}</span>}
       </div>
       {open && <pre className="evdetail">{detail(ev)}</pre>}
     </div>

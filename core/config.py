@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
-    app_title: str = os.getenv("APP_TITLE", "Yield Analysis · RCA Platform")
+    app_title: str = os.getenv("APP_TITLE", "Yield Analysis - RCA Platform")
     region: str = os.getenv("AWS_REGION", "eu-central-1")
     model_id: str = os.getenv("MODEL_ID", "amazon.nova-micro-v1:0")
     mock_llm: bool = os.getenv("MOCK_LLM", "1") == "1"   # 1 = run offline, no Bedrock

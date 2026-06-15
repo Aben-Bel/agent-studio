@@ -5,7 +5,7 @@ from connectors.datastore import _engine
 # Tiny vector RAG store, persisted in app.db. Each chunk is embedded into a
 # fixed-size cosine-normalized vector (a deterministic hashing bag-of-words, so
 # it survives restarts with no model/network). Same add_document/search API as
-# before, so every tool keeps working — swap _vec() for Bedrock Titan embeddings
+# before, so every tool keeps working - swap _vec() for Bedrock Titan embeddings
 # later without touching anything else.
 DIM = 512
 
@@ -17,7 +17,7 @@ def _h(w):                                   # stable hash (Python's hash() is p
     return h
 
 
-def _stem(w):                                # crude stemmer so refund≈refunds, allow≈allowed
+def _stem(w):                                # crude stemmer so refund~refunds, allow~allowed
     for suf in ("ing", "ed", "es", "s"):
         if len(w) > len(suf) + 2 and w.endswith(suf):
             return w[:-len(suf)]

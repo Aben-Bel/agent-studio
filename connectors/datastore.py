@@ -7,7 +7,7 @@ from core.config import cfg
 
 # A "source" is any SQL database we can talk to. "local" is the bundled SQLite
 # file that holds uploaded CSVs; every Postgres/MySQL/... URL the user connects
-# becomes another named source. Same interface, different connection string —
+# becomes another named source. Same interface, different connection string -
 # which is the whole point: a CSV table and a live Postgres link are queried
 # identically downstream.
 _ENGINES: dict = {}
@@ -69,7 +69,7 @@ def connect_db(url, name=None):
             "tables": inspect(eng).get_table_names()}
 
 
-# Platform-internal tables — hidden from /sources so users only see THEIR data.
+# Platform-internal tables - hidden from /sources so users only see THEIR data.
 _INTERNAL_TABLES = {"doc_chunks", "documents", "runs", "run_steps"}
 
 

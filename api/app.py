@@ -1,6 +1,6 @@
 """Application factory. Keeps the entrypoint thin: discover plugins, connect any
 env database, build the app, and mount the routers. All HTTP handlers live in
-api/routers/* (thin) and delegate to core/ services — so 8 people can add
+api/routers/* (thin) and delegate to core/ services - so 8 people can add
 endpoints in separate router files without colliding in one giant main.py."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

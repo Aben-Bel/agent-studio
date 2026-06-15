@@ -41,17 +41,17 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
           <h2>Start a root-cause investigation</h2>
           <p className="muted">
             Ask about a defect or yield drop. The lead agent recruits specialists as needed;
-            every step — each tool call, the data and documents it touches — streams live and is recorded.
+            every step - each tool call, the data and documents it touches - streams live and is recorded.
           </p>
         </div>
-        <button className="primary" onClick={() => onGo("investigate")}>New investigation →</button>
+        <button className="primary" onClick={() => onGo("investigate")}>New investigation</button>
       </div>
 
       <div className="card">
-        <div className="sources-title">Investigate — run the whole team in parallel, or pick one agent</div>
+        <div className="sources-title">Investigate - run the whole team in parallel, or pick one agent</div>
         <div className="team">
           <button className="agentcard team-card" onClick={() => onPickAgent && onPickAgent("team")}>
-            <div className="agentcard-name">⚡ Team (parallel)</div>
+            <div className="agentcard-name">Team (parallel)</div>
             <div className="agentcard-desc">Fire all specialists at once and synthesize one conclusion. Default mode.</div>
             <div className="agentcard-tools">{(caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent")).length} specialists</div>
           </button>
@@ -68,7 +68,7 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
       <div className="dash-cols">
         <div className="card">
           <div className="sources-title">Connected data</div>
-          {sources.length === 0 && <div className="muted small">none yet — add data</div>}
+          {sources.length === 0 && <div className="muted small">none yet - add data</div>}
           {sources.map((s) => (
             <div key={s.name} className="src">
               <span className="src-name">{s.name}</span>

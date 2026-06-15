@@ -17,7 +17,7 @@ def _extract(path, ext):
 
 def ingest(path, filename):
     """Process an upload: extract its text, RECORD it as a pending document, then
-    run the pipeline (normalize -> index -> …) so it becomes RAG-searchable. CSVs
+    run the pipeline (normalize -> index -> ...) so it becomes RAG-searchable. CSVs
     additionally load into their own SQL table. The recording + sweep means a doc
     is never silently lost: process_uploads / run_pending re-processes leftovers."""
     ext = os.path.splitext(filename)[1].lower().lstrip(".")

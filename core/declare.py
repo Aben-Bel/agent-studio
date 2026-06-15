@@ -72,7 +72,7 @@ def skill(name, description=""):
 class McpDecl:
     name: str
     description: str
-    config: dict                 # {transport, command/args, url, ...} — how to reach it
+    config: dict                 # {transport, command/args, url, ...} - how to reach it
     fn: Callable = None          # optional handler/factory for the connection
 
 
@@ -108,7 +108,7 @@ def stage(name, order=50, description=""):
             return doc
 
     Every uploaded document is run through all stages in `order`. Add a stage by
-    dropping a file, reorder by changing the number, remove by deleting it —
+    dropping a file, reorder by changing the number, remove by deleting it -
     no shared file to edit, so 8 people extend the pipeline without colliding."""
     def deco(fn):
         STAGES.register(name)(StageDecl(name, order, fn, description))

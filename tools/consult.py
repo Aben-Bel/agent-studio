@@ -4,7 +4,7 @@ When a (supervisor) agent calls `consult_agent`, the orchestrator RECRUITS the
 named specialist agent, runs it on the given task as a nested investigation,
 streams its every step (so the trace shows which agent is working), and returns
 its conclusion back to the supervisor. This is how one investigation pulls in
-multiple agents. The orchestrator intercepts this by name — the body never runs.
+multiple agents. The orchestrator intercepts this by name - the body never runs.
 """
 from pydantic import BaseModel
 from core.declare import tool

@@ -40,10 +40,10 @@ export default function DataStep({ onContinue, continueLabel = "Continue" }) {
 
   async function addDb() {
     if (!dbUrl.trim()) return;
-    setDbMsg({ kind: "info", text: "connecting…" });
+    setDbMsg({ kind: "info", text: "connecting..." });
     const r = await connectDb(dbUrl.trim(), dbName.trim());
     if (r.connected) {
-      setDbMsg({ kind: "ok", text: `connected "${r.name}" (${r.dialect}) — ${r.tables.length} table(s)` });
+      setDbMsg({ kind: "ok", text: `connected "${r.name}" (${r.dialect}) - ${r.tables.length} table(s)` });
       setDbUrl("");
       setDbName("");
       await refreshSources();
@@ -56,14 +56,14 @@ export default function DataStep({ onContinue, continueLabel = "Continue" }) {
     <div className="card">
       <h2>Connect your data</h2>
       <p className="muted">
-        Bring in defect / process datasets (CSV → queryable tables), equipment manuals
-        and FMEA documents (PDF/MD → searchable knowledge), and live process-parameter
+        Bring in defect / process datasets (CSV -> queryable tables), equipment manuals
+        and FMEA documents (PDF/MD -> searchable knowledge), and live process-parameter
         databases (Postgres/MySQL URL). Everything becomes a source the analysis can use.
       </p>
 
       <label className="drop">
         <input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={handleFiles} />
-        {busy ? "Uploading…" : "Upload defect data (CSV) or manuals (PDF, MD) — pick many"}
+        {busy ? "Uploading..." : "Upload defect data (CSV) or manuals (PDF, MD) - pick many"}
       </label>
 
       <div className="db-row">
@@ -118,7 +118,7 @@ export default function DataStep({ onContinue, continueLabel = "Continue" }) {
         </div>
       )}
       <p className="hint">
-        A sample wafer-defect dataset and a process manual are preloaded — you can start
+        A sample wafer-defect dataset and a process manual are preloaded - you can start
         an investigation right away.
       </p>
     </div>

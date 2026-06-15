@@ -28,7 +28,7 @@ class QueryArgs(BaseModel):
       "rows. Use list_data_sources first to see source names and tables.",
       QueryArgs)
 def query_data(sql, source="local"):
-    # Reads are tolerant; mutations are refused — the data sources are not a
+    # Reads are tolerant; mutations are refused - the data sources are not a
     # write path for the agent.
     head = sql.lstrip().split(None, 1)[0].lower() if sql.strip() else ""
     if head not in ("select", "with"):

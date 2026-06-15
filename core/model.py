@@ -44,7 +44,7 @@ def _last_tool_result(messages):
 def _mock(messages, functions, system):
     """Domain-agnostic offline stand-in. It walks the agent's tools once each
     (filling required args best-effort from the user's message), then delivers a
-    summary. This lets ANY agent's wiring be demonstrated offline — it is NOT the
+    summary. This lets ANY agent's wiring be demonstrated offline - it is NOT the
     real reasoning agent, just a deterministic emulation of tool use."""
     done = _called(messages)
     user_text = next((m["content"] for m in reversed(messages)
@@ -58,7 +58,7 @@ def _mock(messages, functions, system):
 
     used = [m for m in messages if m.get("role") == "tool"]
     if used:
-        return Resp(content="Investigation skeleton complete — the steps above show the "
+        return Resp(content="Investigation skeleton complete - the steps above show the "
                             "tools and data the RCA agent will use. (Reasoning agent not "
                             "implemented yet; this is the wired skeleton running offline.)")
     return Resp(content="No tools available; nothing to run.")

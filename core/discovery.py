@@ -3,13 +3,13 @@ from .util import log
 
 
 def discover(packages=("agents", "tools", "skills", "connectors", "mcp", "pipeline")):
-    """Import every module under each package — including SUBFOLDERS — so its
+    """Import every module under each package - including SUBFOLDERS - so its
     @agent/@tool/@skill/@mcp decorators run and self-register.
 
     Recursing into subfolders is what lets many people work in parallel: each
     person gets their own subfolder (e.g. tools/alice/foo.py, tools/bob/bar.py)
     and nobody edits a shared registry file, so there are no merge conflicts.
-    Subfolders do not need an __init__.py — they import as namespace packages."""
+    Subfolders do not need an __init__.py - they import as namespace packages."""
     for pkg in packages:
         root = pathlib.Path(pkg)
         if not root.exists():

@@ -56,15 +56,15 @@ export default function App() {
   const { admin, view, agents, chat } = nav;
   const TABS = [
     ["overview", "Overview"], ["data", "Data sources"], ["investigate", "Investigate"],
-    ["capabilities", "Capabilities"], ...(admin ? [["agent", "Build agent"]] : []),
+    ...(admin ? [["agent", "Build agent"]] : []),
   ];
 
   return (
-    <div className="app">
+    <div className={"app" + (view === "investigate" ? " app-wide" : "")}>
       <header>
         <div className="brand">
           <h1>Yield Analysis</h1>
-          <span className="sub">Root-Cause Analysis Platform · full visibility</span>
+          <span className="sub">Root-Cause Analysis Platform - full visibility</span>
         </div>
         <div className="head-right">
           <button className="ghost" onClick={() => newInvestigation("team")}>New investigation</button>
@@ -86,7 +86,6 @@ export default function App() {
       <main>
         {view === "overview" && <Dashboard caps={caps} onGo={go} onOpenRun={openRun} onPickAgent={newInvestigation} />}
         {view === "data" && <DataStep />}
-        {view === "capabilities" && <CapabilitiesView caps={caps} onPickAgent={newInvestigation} />}
         {view === "investigate" && (
           <ChatPanel key={chat} caps={caps} chatId={chat} initialAgents={agents} onBack={() => go("overview")} />
         )}
@@ -95,59 +94,12 @@ export default function App() {
             <h2>Build an investigation agent</h2>
             <p className="muted">
               Write a persona and choose which tools it may use. Registered live and routable
-              immediately — the same seam every specialist agent is built on.
+              immediately - the same seam every specialist agent is built on.
             </p>
             <AgentBuilder caps={caps} advanced onCreated={newInvestigation} />
           </div>
         )}
       </main>
-    </div>
-  );
-}
-
-function CapabilitiesView({ caps, onPickAgent }) {
-  const Section = ({ title, items, render }) => (
-    <div className="capsec">
-      <div className="capsec-title">{title} <span className="count">{items.length}</span></div>
-      {items.length === 0 && <div className="muted small">none</div>}
-      <div className="caplist">{items.map(render)}</div>
-    </div>
-  );
-  return (
-    <div className="card">
-      <h2>Everything the platform can do</h2>
-      <p className="muted">
-        Auto-discovered from the backend. Drop a file in <code>agents/</code>, <code>tools/</code>,{" "}
-        <code>skills/</code>, <code>mcp/</code>, or <code>pipeline/</code> (any subfolder) and it
-        shows up here — no shared file to edit, no merge conflicts.
-      </p>
-      <Section title="Agents — click to investigate with one" items={caps.agents} render={(a) => (
-        <div key={a.name} className="capitem agentpick" onClick={() => onPickAgent && onPickAgent(a.name)}>
-          <strong>{a.name}</strong>
-          <span className="muted small"> {a.description}</span>
-          <span className="pickhint">investigate →</span>
-        </div>
-      )} />
-      <Section title="Tools" items={caps.tools} render={(t) => (
-        <div key={t.name} className="capitem">
-          <code>{t.name}</code>
-          {t.owner && <span className="ownertag">{t.owner}</span>}
-          {t.version && <span className="vertag">v{t.version}</span>}
-          <span className="muted small"> {t.description}</span>
-        </div>
-      )} />
-      <Section title="Skills" items={caps.skills} render={(s) => (
-        <div key={s.name} className="capitem"><code>{s.name}</code>
-          <span className="muted small"> {s.description}</span></div>
-      )} />
-      <Section title="MCP servers" items={caps.mcp || []} render={(m) => (
-        <div key={m.name} className="capitem"><code>{m.name}</code>
-          <span className="muted small"> {m.description}</span></div>
-      )} />
-      <Section title="Pipeline stages (upload → …)" items={caps.stages || []} render={(s) => (
-        <div key={s.name} className="capitem"><code>{s.order}. {s.name}</code>
-          <span className="muted small"> {s.description}</span></div>
-      )} />
     </div>
   );
 }

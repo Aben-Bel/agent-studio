@@ -1,4 +1,4 @@
-"""RCA tool STUBS — the slots a future agent will use, declared but not yet
+"""RCA tool STUBS - the slots a future agent will use, declared but not yet
 implemented. They are fully registered (typed args, owner, version) and show up
 in /capabilities, so the skeleton is complete and each can be wired up
 independently by its owner. To implement one: replace the body with a real call
@@ -11,7 +11,7 @@ def _todo(what, **ctx):
     detail = ", ".join(f"{k}={v}" for k, v in ctx.items() if v not in (None, ""))
     return (f"[not implemented yet] {what}"
             + (f" (requested: {detail})" if detail else "")
-            + ". Wire this tool to your data source — the contract is in place.")
+            + ". Wire this tool to your data source - the contract is in place.")
 
 
 class FdcArgs(BaseModel):

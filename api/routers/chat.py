@@ -20,9 +20,14 @@ def run(req: RunRequest):
     for human input (a `needs_human` event), and continues where it left off when
     you POST again with the same `chat_id`. Without a `chat_id` it runs once."""
     def gen():
-        if req.agent == "team" or req.agents:
+        agents = req.agents or []
+        if len(agents) == 1:
+            # one agent -> stateful single run (supports ask_human pause/resume)
+            stream = orchestrator.start_or_resume(req.chat_id or agents[0], agents[0],
+                                                  req.message, req.allow_tools, req.sources)
+        elif req.agent == "team" or agents:
             stream = orchestrator.run_team(req.chat_id or "team", req.message,
-                                           req.agents, req.allow_tools, req.sources)
+                                           agents, req.allow_tools, req.sources)
         elif req.chat_id:
             stream = orchestrator.start_or_resume(req.chat_id, req.agent, req.message)
         else:
@@ -55,5 +60,5 @@ def session_state(chat_id: str):
 @router.post("/sessions/{chat_id}/context")
 def add_context(chat_id: str, req: AddContextRequest):
     """Add context to a session WHILE it runs. Queued on the session; the
-    orchestrator picks it up on its next step — smooth catch-up, no restart."""
+    orchestrator picks it up on its next step - smooth catch-up, no restart."""
     return orchestrator.add_context(chat_id, req.text)

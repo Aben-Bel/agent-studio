@@ -38,7 +38,7 @@ export default function AgentBuilder({ caps, advanced, onCreated }) {
       <label>Name</label>
       <input value={name} onChange={(e) => setName(e.target.value)} />
 
-      <label>Persona — describe your assistant in a sentence or two</label>
+      <label>Persona - describe your assistant in a sentence or two</label>
       <textarea rows={3} value={persona} onChange={(e) => setPersona(e.target.value)} />
 
       {advanced && (
@@ -61,7 +61,7 @@ export default function AgentBuilder({ caps, advanced, onCreated }) {
 
       <div className="row end">
         <button className="primary" onClick={create} disabled={busy}>
-          {busy ? "Creating…" : "Create & chat"}
+          {busy ? "Creating..." : "Create & chat"}
         </button>
       </div>
     </div>

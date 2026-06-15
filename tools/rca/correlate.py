@@ -2,7 +2,7 @@
 
 This is a REAL, working tool (the deterministic 'R/Excel script' the engineer
 writes by hand today). It ranks every numeric process parameter by its absolute
-correlation with the defect target over a loaded table — e.g. the seeded
+correlation with the defect target over a loaded table - e.g. the seeded
 `wafer_defects` table. Drop more analysis tools beside this one in tools/rca/."""
 import pandas as pd
 from pydantic import BaseModel

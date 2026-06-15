@@ -1,4 +1,4 @@
-"""S3 helper — import and use anywhere.
+"""S3 helper - import and use anywhere.
 
     from connectors.s3 import s3
 
@@ -11,7 +11,7 @@
     info = s3.presign_put("report.pdf")      # -> {key, upload_url, get_url, bucket}
     #   browser:  PUT the file  ->  info["upload_url"]
     #   browser:  send info["key"] back to the backend
-    bucket, key = s3.parse(link)             # accept a key, s3://…, or https S3 URL
+    bucket, key = s3.parse(link)             # accept a key, s3://..., or https S3 URL
 
 Requires S3_BUCKET, AWS creds, and AWS_REGION in the environment.
 """
@@ -48,7 +48,7 @@ class S3:
     @property
     def bucket(self):
         if not cfg.s3_bucket:
-            raise RuntimeError("S3_BUCKET is not set — add it to your .env")
+            raise RuntimeError("S3_BUCKET is not set - add it to your .env")
         return cfg.s3_bucket
 
     # ---------------- keys / links ----------------

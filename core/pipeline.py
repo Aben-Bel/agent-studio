@@ -2,7 +2,7 @@
 
 Uploads RECORD a document (status=pending); the pipeline PROCESSES it by running
 every discovered @stage in order. A sweep (run_pending) picks up anything still
-pending — so nothing is silently "left behind", and you can replay by resetting
+pending - so nothing is silently "left behind", and you can replay by resetting
 status. Stages are drop-in files in pipeline/ (see core.declare.stage)."""
 from sqlalchemy import text as sql
 from connectors.datastore import _engine

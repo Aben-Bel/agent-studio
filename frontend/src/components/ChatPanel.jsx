@@ -31,9 +31,12 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
   const [awaiting, setAwaiting] = useState(null);
   const [error, setError] = useState(null);
   const [lastMsg, setLastMsg] = useState("");
+  const [setupOpen, setSetupOpen] = useState(true);
+  const [traceOpen, setTraceOpen] = useState(true);
   const abortRef = useRef(null);
-  const msgRef = useRef(null), feedRef = useRef(null);
+  const msgRef = useRef(null), feedRef = useRef(null), taRef = useRef(null);
   const stickMsg = useRef(true), stickFeed = useRef(true);
+  function autoGrow(el) { if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 160) + "px"; }
 
   // defaults once capabilities/sources load
   useEffect(() => { if (!agents.length && specialists.length) setAgents(specialists.map((a) => a.name)); }, [caps]); // eslint-disable-line
@@ -92,7 +95,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
   async function run(message) {
     setMessages((m) => [...m, { role: "user", text: message }]);
     setEvents([]); stickMsg.current = true; stickFeed.current = true;
-    setBusy(true); setAwaiting(null); setError(null); setStatus("dispatching…"); setLastMsg(message);
+    setBusy(true); setAwaiting(null); setError(null); setStatus("dispatching..."); setLastMsg(message);
     const ac = new AbortController(); abortRef.current = ac;
     let answer = "", paused = null, errored = null;
     try {
@@ -106,7 +109,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
           if (ev.type === "agent_switch" && d.role === "dispatch") setStatus("dispatched to " + (d.agents || []).join(", "));
           else if (ev.type === "agent_switch" && d.role === "working") setStatus(d.agent + " started");
           else if (ev.type === "progress") setStatus(who + d.message);
-          else if (ev.type === "thinking") setStatus(who + "reasoning…");
+          else if (ev.type === "thinking") setStatus(who + "reasoning...");
           else if (ev.type === "tool_call") setStatus(who + "using " + d.name);
           else if (ev.type === "tool_result") setStatus(who + d.name + " done");
           if (ev.type === "final" && !d.depth) answer = d.message;
@@ -137,13 +140,17 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
-        {onBack && <button onClick={onBack}>← Overview</button>}
-        <span className="muted">Investigation · {agents.length} agent{agents.length === 1 ? "" : "s"}<span className="chatid"> · {chatId.slice(0, 8)}</span></span>
+        {onBack && <button onClick={onBack}>Overview</button>}
+        <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? "Hide setup" : "Setup"}</button>
+        <span className="muted">Investigation - {agents.length} agent{agents.length === 1 ? "" : "s"}<span className="chatid"> - {chatId.slice(0, 8)}</span></span>
         {busy && <button className="stopbtn" onClick={stop}>Stop</button>}
+        <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? "Hide trace" : "Trace"}</button>
       </div>
 
-      <div className="investigate-grid">
+      <div className="investigate-grid"
+        style={{ gridTemplateColumns: `${setupOpen ? "210px " : ""}minmax(0,1fr)${traceOpen ? " 340px" : ""}` }}>
         {/* ---- Setup column ---- */}
+        {setupOpen && (
         <aside className="setup">
           <div className="setup-sec">
             <div className="setup-title">Agents <span className="muted small">{agents.length}/{specialists.length}</span></div>
@@ -157,13 +164,13 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
 
           <div className="setup-sec">
             <div className="setup-title">Data sources
-              <button className="mini" onClick={() => setAdding((v) => !v)}>{adding ? "×" : "+ add"}</button>
+              <button className="mini" onClick={() => setAdding((v) => !v)}>{adding ? "Cancel" : "+ add"}</button>
             </div>
             {adding && (
               <div className="addsrc">
                 <label className="filebtn">{adding ? "Upload CSV / PDF" : "Upload"}<input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={addFiles} /></label>
                 <div className="db-mini">
-                  <input placeholder="postgresql://…" value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addDb()} />
+                  <input placeholder="postgresql://..." value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addDb()} />
                   <button onClick={addDb}>DB</button>
                 </div>
               </div>
@@ -187,6 +194,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
             ))}
           </div>
         </aside>
+        )}
 
         {/* ---- Conversation column ---- */}
         <div className="center">
@@ -200,23 +208,27 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
                     {m.role === "assistant" ? <Md>{m.text}</Md> : m.text}
                   </div>
             ))}
-            {busy && <div className="statusline"><span className="spin" /> {status || "working…"}</div>}
+            {busy && <div className="statusline"><span className="spin" /> {status || "working..."}</div>}
           </div>
+          {awaiting && <div className="askbanner"><strong>The agent needs your input.</strong> Type your answer below and press Reply.</div>}
           {error && <div className="retrybar">{error}<button onClick={retry}>Retry</button></div>}
           <div className="row composer">
-            <input value={input} onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-              placeholder={busy ? "Add context while it works…" : awaiting ? "Answer the agent…" : "Ask about a defect or yield drop…"} />
+            <textarea ref={taRef} rows={1} value={input}
+              onChange={(e) => { setInput(e.target.value); autoGrow(e.target); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+              placeholder={busy ? "Add context while it works...  (Shift+Enter = newline)" : awaiting ? "Answer the agent..." : "Ask about a defect or yield drop...  (Shift+Enter = newline)"} />
             <button className="primary" onClick={submit}>{busy ? "Add context" : awaiting ? "Reply" : "Investigate"}</button>
           </div>
         </div>
 
         {/* ---- Trace column ---- */}
+        {traceOpen && (
         <aside className="feed" ref={feedRef} onScroll={() => onScroll(feedRef, stickFeed)}>
-          <div className="feed-title">Orchestrator <span className="muted small">· click a step</span></div>
+          <div className="feed-title">Orchestrator <span className="muted small">- click a step</span></div>
           {events.length === 0 && <div className="muted small">steps appear here as the agents work</div>}
           <TraceLanes events={events} leadLabel="orchestrator" />
         </aside>
+        )}
       </div>
     </div>
   );

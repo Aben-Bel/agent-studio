@@ -28,7 +28,7 @@ def list_runs():
 
 @router.get("/runs/{chat_id}")
 def get_run(chat_id: str):
-    """Full, replayable trace of one investigation — every step persisted."""
+    """Full, replayable trace of one investigation - every step persisted."""
     return runs.get_run(chat_id)
 
 

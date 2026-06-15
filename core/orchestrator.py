@@ -8,7 +8,7 @@ from .config import cfg
 
 def _params_schema(fn):
     """Build a JSON schema from a function's signature so the model knows what
-    arguments to pass. Skills declare no pydantic model, so we infer one here —
+    arguments to pass. Skills declare no pydantic model, so we infer one here -
     contributors still just write a plain function."""
     props, required = {}, []
     for name, p in inspect.signature(fn).parameters.items():
@@ -26,7 +26,7 @@ def _params_schema(fn):
 # it can PAUSE to ask the human something (ask_human) and remembers exactly where
 # it stopped; when the human replies it CONTINUES the same session. State lives
 # here, keyed by chat_id, so the client never has to resend the whole history.
-# (In-memory for the demo — swap this dict for Redis/SQL to survive restarts.)
+# (In-memory for the demo - swap this dict for Redis/SQL to survive restarts.)
 # ----------------------------------------------------------------------------
 SESSIONS: dict = {}
 
@@ -215,13 +215,15 @@ def _drive(sess):
            "data": {"message": "(stopped after max steps)", "chat_id": sess["chat_id"]}}
 
 
-def start_or_resume(chat_id, agent_name, message):
+def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None):
     """Stateful entry point used by the API. Starts a new chat or continues an
     existing one by chat_id. The human's `message` either opens a new turn or
-    answers a pending `ask_human` pause."""
+    answers a pending `ask_human` pause. Optional tool/source restrictions scope
+    the run, matching the team mode."""
     sess = SESSIONS.get(chat_id)
     if sess is None:
         sess = _new_session(chat_id, agent_name)
+        sess["allow_tools"] = set(allow_tools) if allow_tools else None
         runs.start_run(chat_id, agent_name)
         agent = AGENTS.get(agent_name)
         ev = {"type": "agent_switch",
@@ -236,7 +238,9 @@ def start_or_resume(chat_id, agent_name, message):
         sess["msgs"].append({"role": "tool", "name": p["name"],
                              "tool_call_id": p["tool_call_id"], "content": message})
     else:
-        sess["msgs"].append({"role": "user", "content": message})
+        scoped = (f"Use ONLY these data sources / tables: {', '.join(sources)}.\n\n{message}"
+                  if sources else message)
+        sess["msgs"].append({"role": "user", "content": scoped})
         runs.record(chat_id, {"type": "user_message", "data": {"text": message}})
 
     # Every streamed event is persisted to the audit trail (full visibility).

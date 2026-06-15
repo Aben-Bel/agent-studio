@@ -1,6 +1,6 @@
 """RCA tool: search FMEA / failure-mode knowledge and equipment manuals.
 
-REAL tool — runs over whatever manuals/FMEA documents have been uploaded (they
+REAL tool - runs over whatever manuals/FMEA documents have been uploaded (they
 are chunked + embedded by the ingestion pipeline). Returns the most relevant
 passages so the agent can cite known failure modes for a symptom."""
 from pydantic import BaseModel

@@ -2,7 +2,7 @@
 
 When an agent calls `ask_human`, the orchestrator PAUSES the run, streams a
 `needs_human` event to the frontend, and remembers exactly where it stopped. The
-person's reply resumes the same session from that point — the agent then sees the
+person's reply resumes the same session from that point - the agent then sees the
 answer as this tool's result. Give an agent this tool to let it ask for input,
 a missing detail, or approval mid-task.
 
