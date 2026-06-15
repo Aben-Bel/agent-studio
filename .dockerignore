@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+.env
+.env.*
+AWSCLIV2.pkg
+frontend
+node_modules
+dist
+*.db
+data/app.db
+.DS_Store
+README.md

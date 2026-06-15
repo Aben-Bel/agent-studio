@@ -1,0 +1,26 @@
+services:
+  backend:
+    build: .
+    # AWS creds + MOCK_LLM + MODEL_ID + AWS_REGION come from .env.
+    # required:false lets the stack still boot in offline mock mode with no .env.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_PATH: /data/app.db
+    volumes:
+      - appdata:/data
+    ports:
+      - "8000:8000"   # exposed for direct debugging; frontend talks via the network
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"     # open http://localhost:8080  (change to "80:80" on a server)
+    restart: unless-stopped
+
+volumes:
+  appdata:
