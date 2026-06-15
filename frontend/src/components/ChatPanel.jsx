@@ -303,13 +303,15 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     const nq = norm(q);
     return !askedNorm.some((a) => a === nq || jaccard(a, nq) > 0.6);
   });
+  // The orchestrator panel only earns its space once there's something to show.
+  const hasTrace = busy || turns.length > 0;
 
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
         {onBack && <button onClick={onBack}>← {t("overview")}</button>}
         <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? t("hideSetup") : t("setup")}</button>
-        <span className="muted">{t("investigate")} - {agents.length}<span className="chatid"> - {chatId.slice(0, 8)}</span></span>
+        <span className="muted" title={"chat " + chatId}>{t("investigate")} · {agents.length} {t("agents")}</span>
         {busy && <button className="stopbtn" onClick={stop}>{t("stop")}</button>}
         <div className="dl-wrap">
           <button className="mini" disabled={!messages.length} title={t("downloadHint")}
@@ -331,10 +333,10 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             </>
           )}
         </div>
-        <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? t("hideTrace") : t("trace")}</button>
+        {hasTrace && <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? t("hideTrace") : t("trace")}</button>}
       </div>
 
-      <div className={"investigate-grid" + (setupOpen ? "" : " no-setup") + (traceOpen ? "" : " no-trace")}>
+      <div className={"investigate-grid" + (setupOpen ? "" : " no-setup") + (traceOpen && hasTrace ? "" : " no-trace")}>
 
         {setupOpen && (
         <aside className="setup">
@@ -491,7 +493,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           </div>
         </div>
 
-        {traceOpen && (
+        {traceOpen && hasTrace && (
         <aside className="feed" ref={feedRef} onScroll={() => onScroll(feedRef, stickFeed)}>
           <div className="feed-title">{t("orchestrator")} <span className="muted small">- {t("clickStep")}</span></div>
           {turns.length === 0 && <div className="feed-empty muted small">{t("stepsAppear")}</div>}

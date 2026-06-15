@@ -58,7 +58,7 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
           {(caps.agents || []).map((a) => (
             <button key={a.name} className="agentcard" onClick={() => onPickAgent && onPickAgent(a.name)}>
               <div className="agentcard-name">{a.name}</div>
-              <div className="agentcard-desc">{a.description}</div>
+              <div className="agentcard-desc" title={a.description}>{a.description}</div>
               <div className="agentcard-tools">{(a.tools || []).length} tools</div>
             </button>
           ))}
