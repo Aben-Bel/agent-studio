@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from core.declare import tool
-from connectors import datastore
+from connectors import datastore, memory
 
 
 class Empty(BaseModel):
@@ -8,14 +8,19 @@ class Empty(BaseModel):
 
 
 @tool("list_data_sources",
-      "List connected data sources (local CSV store + connected databases) and "
-      "their tables.", Empty)
+      "List ALL data the user has: connected SQL sources/tables AND uploaded "
+      "documents (PDFs/manuals indexed for search). Use this to answer 'what data "
+      "do I have'.", Empty)
 def list_data_sources():
     parts = []
     for s in datastore.list_sources():
         tables = ", ".join(s["tables"]) or "(no tables)"
-        parts.append(f'{s["name"]} [{s["dialect"]}]: {tables}')
-    return "\n".join(parts) or "No data sources connected."
+        parts.append(f'SQL source "{s["name"]}" [{s["dialect"]}]: {tables}')
+    docs = memory.list_documents()
+    if docs:
+        parts.append("Uploaded documents (searchable via search_docs / search_fmea): "
+                     + ", ".join(f'{d["source"]} ({d["chars"]} chars)' for d in docs))
+    return "\n".join(parts) or "No data sources connected yet."
 
 
 class QueryArgs(BaseModel):

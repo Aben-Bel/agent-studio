@@ -49,6 +49,16 @@ export async function previewTable(source, table, limit = 50) {
   return r.json();
 }
 
+// Uploaded documents (PDFs/manuals) and their full text (for inspect).
+export async function getDocuments() {
+  const r = await fetch(`${BASE}/documents`);
+  return r.json();
+}
+export async function previewDocument(source) {
+  const r = await fetch(`${BASE}/documents/${encodeURIComponent(source)}/preview`);
+  return r.json();
+}
+
 // The investigation audit trail (every run).
 export async function getRuns() {
   const r = await fetch(`${BASE}/runs`);

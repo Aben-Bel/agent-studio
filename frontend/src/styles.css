@@ -142,9 +142,12 @@ button.ghost { background: transparent; }
 
 /* ---- 3-column investigation workspace ---- */
 .investigate-grid {
-  display: grid; grid-template-columns: 210px 1fr 330px; gap: 12px;
+  display: grid; grid-template-columns: 210px minmax(0, 1fr) 340px; gap: 12px;
   flex: 1 1 auto; min-height: 0;
 }
+.investigate-grid.no-setup { grid-template-columns: minmax(0, 1fr) 340px; }
+.investigate-grid.no-trace { grid-template-columns: 210px minmax(0, 1fr); }
+.investigate-grid.no-setup.no-trace { grid-template-columns: minmax(0, 1fr); }
 .investigate-grid .center { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .investigate-grid .messages { flex: 1 1 auto; }
 .setup { overflow-y: auto; min-height: 0; padding-right: 6px; border-right: 1px solid var(--line); }
@@ -154,6 +157,8 @@ button.ghost { background: transparent; }
   text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 6px;
 }
 .setup-title .mini { margin-left: auto; }
+/* each setup section is a fixed-height box that scrolls as items grow */
+.setup-list { max-height: 150px; overflow-y: auto; padding-right: 2px; }
 .mini { font-size: 11px; padding: 1px 7px; }
 .check { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 13px; cursor: pointer; margin: 0; color: var(--text); }
 .check input { width: auto; }
@@ -168,8 +173,18 @@ button.ghost { background: transparent; }
 .db-mini input { font-size: 12px; padding: 5px 7px; }
 .db-mini button { font-size: 12px; padding: 5px 8px; }
 @media (max-width: 820px) {
-  .investigate-grid { grid-template-columns: 1fr; overflow-y: auto; }
-  .setup { border-right: none; border-bottom: 1px solid var(--line); }
+  .app, .app.app-wide { max-width: 100%; padding: 14px 12px 40px; }
+  .chat-wrap { height: auto; min-height: 0; }
+  .investigate-grid,
+  .investigate-grid.no-setup,
+  .investigate-grid.no-trace,
+  .investigate-grid.no-setup.no-trace { grid-template-columns: 1fr; }
+  .setup { border-right: none; border-bottom: 1px solid var(--line); max-height: 220px; padding-right: 0; }
+  .messages { max-height: 55vh; }
+  .feed { max-height: 340px; }
+  header { flex-wrap: wrap; gap: 8px; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .modal, .modal-wide { width: 100%; }
 }
 .msg { padding: 10px 12px; border-radius: 10px; font-size: 14px; max-width: 85%; }
 .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
@@ -264,6 +279,11 @@ button.ghost { background: transparent; }
 .srcrow input[type="checkbox"] { width: auto; flex: 0 0 auto; }
 .srclink { flex: 1; text-align: left; background: none; border: none; padding: 2px 4px; cursor: pointer; font-size: 13px; color: var(--text); border-radius: 5px; }
 .srclink:hover { background: var(--accent-weak); color: var(--accent-deep); }
+.docicon { font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; flex: 0 0 auto; }
+.doc-text { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.5;
+  max-height: 62vh; overflow: auto; background: #f3f7f4; border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px; font-family: inherit; }
 
 /* ---- inspect preview ---- */
 .inspect-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }

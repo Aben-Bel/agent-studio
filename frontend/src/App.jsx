@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import Dashboard from "./components/Dashboard.jsx";
-import DataStep from "./components/DataStep.jsx";
 import ChatPanel from "./components/ChatPanel.jsx";
 import { getCapabilities } from "./api.js";
 
@@ -52,10 +51,10 @@ export default function App() {
   const openRun = (chatId) => goTo({ view: "investigate", chat: chatId, agents: [] });
 
   const { view, agents, chat } = nav;
-  const TABS = [["overview", "Overview"], ["data", "Data sources"], ["investigate", "Investigate"]];
+  const TABS = [["overview", "Overview"], ["investigate", "Investigate"]];
 
   return (
-    <div className={"app" + (view === "investigate" ? " app-wide" : "")}>
+    <div className="app app-wide">
       <header>
         <div className="brand">
           <h1>Yield Analysis</h1>
@@ -74,7 +73,6 @@ export default function App() {
 
       <main>
         {view === "overview" && <Dashboard caps={caps} onGo={go} onOpenRun={openRun} onPickAgent={newInvestigation} />}
-        {view === "data" && <DataStep />}
         {view === "investigate" && (
           <ChatPanel key={chat} caps={caps} chatId={chat} initialAgents={agents}
             onBack={() => go("overview")} refreshCaps={refreshCaps} />

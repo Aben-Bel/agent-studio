@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import { TraceLanes } from "./Trace.jsx";
 import Modal from "./Modal.jsx";
 import AddAgentModal from "./AddAgentModal.jsx";
-import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable } from "../api.js";
+import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument } from "../api.js";
 
 const Md = ({ children }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ""}</ReactMarkdown></div>
@@ -28,6 +28,9 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [inspect, setInspect] = useState(null); // source being inspected
   const [preview, setPreview] = useState(null); // {table, columns, rows, loading, error}
+  const [inspectAgent, setInspectAgent] = useState(null); // agent being inspected
+  const [docs, setDocs] = useState([]);          // uploaded documents
+  const [inspectDoc, setInspectDoc] = useState(null); // {source, text, loading}
 
   const [messages, setMessages] = useState([]);
   const [turns, setTurns] = useState([]);       // [{question, events:[]}] - one per turn, never wiped
@@ -48,8 +51,18 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   useEffect(() => { if (!agents.length && specialists.length) setAgents(specialists.map((a) => a.name)); }, [caps]); // eslint-disable-line
 
   async function loadSources() {
-    try { const s = await getSources(); setSources(s.sources || []); setSrcOn((on) => on ?? (s.sources || []).map((x) => x.name)); }
-    catch { /* */ }
+    try {
+      const s = await getSources();
+      setSources(s.sources || []);
+      setSrcOn((on) => on ?? (s.sources || []).map((x) => x.name));
+      const d = await getDocuments();
+      setDocs(d.documents || []);
+    } catch { /* */ }
+  }
+  async function openDoc(d) {
+    setInspectDoc({ source: d.source, loading: true });
+    const r = await previewDocument(d.source).catch((e) => ({ text: "", error: String(e) }));
+    setInspectDoc({ source: d.source, text: r.text || "", error: r.error });
   }
   useEffect(() => { loadSources(); }, []);
 
@@ -214,8 +227,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
         <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? "Hide trace" : "Trace"}</button>
       </div>
 
-      <div className="investigate-grid"
-        style={{ gridTemplateColumns: `${setupOpen ? "210px " : ""}minmax(0,1fr)${traceOpen ? " 340px" : ""}` }}>
+      <div className={"investigate-grid" + (setupOpen ? "" : " no-setup") + (traceOpen ? "" : " no-trace")}>
 
         {setupOpen && (
         <aside className="setup">
@@ -223,12 +235,14 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             <div className="setup-title">Agents <span className="muted small">{agents.length}/{specialists.length}</span>
               <button className="mini" onClick={() => setShowAddAgent(true)}>+ agent</button>
             </div>
-            {specialists.map((a) => (
-              <label key={a.name} className="check" title={a.description}>
-                <input type="checkbox" checked={agents.includes(a.name)} onChange={() => toggle(agents, setAgents, a.name)} />
-                <span>{a.name}</span>
-              </label>
-            ))}
+            <div className="setup-list">
+              {specialists.map((a) => (
+                <div key={a.name} className="srcrow">
+                  <input type="checkbox" checked={agents.includes(a.name)} onChange={() => toggle(agents, setAgents, a.name)} />
+                  <button className="srclink" onClick={() => setInspectAgent(a)} title="what is this agent?">{a.name}</button>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="setup-sec">
@@ -255,25 +269,37 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                 ))}
               </div>
             )}
-            {sources.length === 0 && <div className="muted small">none</div>}
-            {sources.map((s) => (
-              <div key={s.name} className="srcrow">
-                <input type="checkbox" checked={sourceOn(s.name)} onChange={() => toggleSource(s.name)} />
-                <button className="srclink" onClick={() => openInspect(s)} title="inspect this source">
-                  {s.name} <span className="muted small">{(s.tables || []).length}t</span>
-                </button>
-              </div>
-            ))}
+            {sources.length === 0 && docs.length === 0 && <div className="muted small">none</div>}
+            <div className="setup-list">
+              {sources.map((s) => (
+                <div key={s.name} className="srcrow">
+                  <input type="checkbox" checked={sourceOn(s.name)} onChange={() => toggleSource(s.name)} />
+                  <button className="srclink" onClick={() => openInspect(s)} title="inspect this source">
+                    {s.name} <span className="muted small">{(s.tables || []).length}t</span>
+                  </button>
+                </div>
+              ))}
+              {docs.map((d) => (
+                <div key={d.source} className="srcrow">
+                  <span className="docicon" title="uploaded document">doc</span>
+                  <button className="srclink" onClick={() => openDoc(d)} title="view this document">
+                    {d.source} <span className="muted small">{d.chars}c</span>
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="setup-sec">
             <div className="setup-title">Tools & skills <span className="muted small">{tools === null ? allTools.length : tools.length}/{allTools.length}</span></div>
-            {allTools.map((t) => (
-              <label key={t.name} className="check" title={t.description}>
-                <input type="checkbox" checked={toolOn(t.name)} onChange={() => toggleTool(t.name)} />
-                <span>{t.name}</span>
-              </label>
-            ))}
+            <div className="setup-list">
+              {allTools.map((t) => (
+                <label key={t.name} className="check" title={t.description}>
+                  <input type="checkbox" checked={toolOn(t.name)} onChange={() => toggleTool(t.name)} />
+                  <span>{t.name}</span>
+                </label>
+              ))}
+            </div>
           </div>
         </aside>
         )}
@@ -317,6 +343,32 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
       </div>
 
       {showAddAgent && <AddAgentModal caps={caps} onClose={() => setShowAddAgent(false)} onCreated={onAgentCreated} />}
+
+      {inspectDoc && (
+        <Modal title={`Document: ${inspectDoc.source}`} wide onClose={() => setInspectDoc(null)}>
+          {inspectDoc.loading && <div className="muted small">loading...</div>}
+          {inspectDoc.error && <div className="warn small">{inspectDoc.error}</div>}
+          {!inspectDoc.loading && !inspectDoc.error && (
+            <pre className="doc-text">{inspectDoc.text || "(empty)"}</pre>
+          )}
+        </Modal>
+      )}
+
+      {inspectAgent && (
+        <Modal title={`Agent: ${inspectAgent.name}`} onClose={() => setInspectAgent(null)}>
+          <p className="muted">{inspectAgent.description}</p>
+          <div className="setup-title" style={{ marginTop: 12 }}>Tools it may use ({(inspectAgent.tools || []).length})</div>
+          <div className="chips">
+            {(inspectAgent.tools || []).map((t) => <span key={t} className="chip on">{t}</span>)}
+            {!(inspectAgent.tools || []).length && <span className="muted small">none</span>}
+          </div>
+          <div className="row end" style={{ marginTop: 14 }}>
+            <button className="primary" onClick={() => { if (!agents.includes(inspectAgent.name)) setAgents((a) => [...a, inspectAgent.name]); setInspectAgent(null); }}>
+              Use this agent
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {inspect && (
         <Modal title={`Source: ${inspect.name} (${inspect.dialect})`} wide onClose={() => { setInspect(null); setPreview(null); }}>

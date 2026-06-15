@@ -57,3 +57,20 @@ def search(query, k=3):
     scored = [(sum(a * b for a, b in zip(q, json.loads(v))), c) for c, v in rows]
     scored.sort(reverse=True)
     return [c for s, c in scored[:k] if s > 0]
+
+
+def list_documents():
+    """Uploaded documents in the RAG store (so they show up as data sources too)."""
+    _init()
+    with _engine("local").connect() as cx:
+        rows = cx.execute(sql("select source, count(*), coalesce(sum(length(chunk)),0) "
+                              "from doc_chunks group by source order by source")).fetchall()
+    return [{"source": r[0], "chunks": r[1], "chars": r[2]} for r in rows]
+
+
+def get_document(source, limit_chars=20000):
+    """The full text of an uploaded document (for inspection)."""
+    _init()
+    with _engine("local").connect() as cx:
+        rows = cx.execute(sql("select chunk from doc_chunks where source=:s"), {"s": source}).fetchall()
+    return "\n\n".join(r[0] for r in rows)[:limit_chars]

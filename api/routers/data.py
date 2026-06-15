@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from core import pipeline
 from core.schemas import ConnectDbRequest
-from connectors import datastore
+from connectors import datastore, memory
 from connectors.ingest import ingest
 from connectors.s3 import s3
 
@@ -89,6 +89,18 @@ def sources():
     """Every connected data source and the tables inside it: the local CSV store
     plus any databases added via /connect-db or DATABASE_URL."""
     return {"sources": datastore.list_sources()}
+
+
+@router.get("/documents")
+def documents():
+    """Uploaded documents in the RAG store (PDFs/manuals) - they are data sources too."""
+    return {"documents": memory.list_documents()}
+
+
+@router.get("/documents/{source}/preview")
+def document_preview(source: str):
+    """Full text of an uploaded document, so the user can inspect it."""
+    return {"source": source, "text": memory.get_document(source)}
 
 
 @router.get("/sources/{source}/{table}/preview")

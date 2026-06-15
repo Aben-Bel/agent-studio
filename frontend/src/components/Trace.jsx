@@ -33,7 +33,11 @@ function Lane({ name, lead, events }) {
         <span className={"lane-status " + status}>{status === "working" ? "working..." : status}</span>
       </div>
       {dispatched && (
-        <div className="lane-dispatch">dispatched to {(dispatched.data.agents || []).join(", ")}</div>
+        <div className="lane-dispatch">
+          routed to {(dispatched.data.agents || []).join(", ") || "(none)"}
+          {(dispatched.data.skipped || []).length > 0 &&
+            <span className="muted"> - skipped {dispatched.data.skipped.join(", ")} (not needed)</span>}
+        </div>
       )}
       <div className="lane-steps">
         {steps.length === 0 && <div className="muted small">-</div>}

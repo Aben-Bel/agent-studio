@@ -269,6 +269,26 @@ TEAM_SESSIONS: dict = {}    # chat_id -> [{"task", "synthesis"}] for follow-up c
 CLARIFY_PENDING: dict = {}  # chat_id -> {"task"} when the team asked the user to clarify
 
 
+def _route_agents(task, names):
+    """LLM picks the minimal set of relevant specialists for THIS question, from
+    the ones the user selected. Routing, not always fan-out. Falls back to all."""
+    if len(names) <= 1 or cfg.mock_llm:
+        return names
+    catalog = "\n".join(f"- {n}: {AGENTS.get(n).description}" for n in names)
+    try:
+        r = model.complete(
+            [{"role": "user", "content":
+              f"Question: {task}\n\nAvailable specialists:\n{catalog}\n\n"
+              "List ONLY the specialist names actually needed to answer THIS question, "
+              "comma-separated. Omit irrelevant ones. If genuinely unsure, include it."}],
+            [], _style("You route a question to the minimal set of relevant specialists."))
+        picked = (r.content or "").replace("\n", ",").lower()
+        sel = [n for n in names if n.lower() in picked]
+        return sel or names
+    except Exception:
+        return names
+
+
 def _needs_clarification(task, results):
     """LLM decides (not hardcoded) whether the specialists flagged the input as
     ambiguous such that ONE question to the user would materially change the answer.
@@ -324,8 +344,14 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
         return ev
 
     yield emit({"type": "user_message", "data": {"text": user_msg}})
+
+    # Route: pick only the specialists relevant to this question (not blind fan-out).
+    candidates = names
+    names = _route_agents(task, names)
+    skipped = [n for n in candidates if n not in names]
     yield emit({"type": "agent_switch",
-                "data": {"agent": "team", "role": "dispatch", "agents": names, "chat_id": chat_id}})
+                "data": {"agent": "team", "role": "dispatch", "agents": names,
+                         "skipped": skipped, "chat_id": chat_id}})
 
     q = Queue()
     results = {}
