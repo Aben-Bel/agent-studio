@@ -284,6 +284,9 @@ button.ghost { background: transparent; }
 .upname { font-weight: 600; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .updetail { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uprow.error .updetail { color: var(--err); }
+.updismiss { flex: 0 0 auto; border: none; background: none; color: var(--muted); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
+.updismiss:hover { background: rgba(0,0,0,0.07); color: var(--err); }
 
 /* ---- clickable data source ---- */
 .srcrow { display: flex; align-items: center; gap: 7px; padding: 3px 0; }

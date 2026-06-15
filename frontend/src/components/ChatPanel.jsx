@@ -271,6 +271,10 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                     {u.status === "processing" && <span className="spin" />}
                     <span className="upname" title={u.name}>{u.name}</span>
                     <span className="updetail">{u.detail}</span>
+                    {u.status !== "processing" && (
+                      <button className="updismiss" title="dismiss"
+                        onClick={() => setUploads((us) => us.filter((_, j) => j !== i))}>x</button>
+                    )}
                   </div>
                 ))}
               </div>
