@@ -9,7 +9,7 @@ from core.config import cfg
 from core.discovery import discover
 from core.util import log
 from connectors import datastore
-from api.routers import capabilities, data, chat
+from api.routers import capabilities, data, chat, export
 
 
 def create_app() -> FastAPI:
@@ -36,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(capabilities.router, tags=["platform"])
     app.include_router(data.router, tags=["data"])
     app.include_router(chat.router, tags=["investigations"])
+    app.include_router(export.router, tags=["output"])
     return app
 
 

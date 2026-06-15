@@ -2,7 +2,7 @@ import importlib, pathlib
 from .util import log
 
 
-def discover(packages=("agents", "tools", "skills", "connectors", "mcp", "pipeline")):
+def discover(packages=("agents", "tools", "skills", "connectors", "mcp", "pipeline", "exporters")):
     """Import every module under each package - including SUBFOLDERS - so its
     @agent/@tool/@skill/@mcp decorators run and self-register.
 

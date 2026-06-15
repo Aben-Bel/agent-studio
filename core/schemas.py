@@ -29,12 +29,18 @@ class ConnectDbRequest(BaseModel):
 class Event(BaseModel):
     type: Literal["agent_switch", "progress", "thinking", "tool_call", "tool_result",
                   "needs_human", "context_added", "user_message", "suggestions",
-                  "final", "error"]
+                  "artifact", "final", "error"]
     data: dict[str, Any]
 
 
 class AddContextRequest(BaseModel):
     text: str                       # extra context to feed an in-progress chat
+
+
+class ExportRequest(BaseModel):
+    chat_id: str                    # which investigation to turn into an artifact
+    format: str                     # exporter name, e.g. "report_md" / "presentation_pdf"
+    title: Optional[str] = None     # optional report title override
 
 
 class Capabilities(BaseModel):

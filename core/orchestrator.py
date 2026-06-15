@@ -1,7 +1,7 @@
 import inspect
 import threading
 from queue import Queue
-from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES
+from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES, EXPORTERS
 from . import model, pipeline, runs
 from .config import cfg
 
@@ -32,6 +32,18 @@ SESSIONS: dict = {}
 
 HUMAN_TOOL = "ask_human"        # calling this pauses the run for human input
 CONSULT_TOOL = "consult_agent"  # calling this recruits another agent (multi-agent)
+EXPORT_TOOL = "prepare_download"  # calling this generates a downloadable artifact
+
+# Friendly aliases -> exporter name, so the agent can say pdf/slides/report/latex.
+_FORMAT_ALIASES = {
+    "pdf": "presentation_pdf", "slides": "presentation_pdf", "slide": "presentation_pdf",
+    "deck": "presentation_pdf", "slide deck": "presentation_pdf", "presentation": "presentation_pdf",
+    "ppt": "presentation_pdf", "powerpoint": "presentation_pdf",
+    "report": "report_md", "md": "report_md", "markdown": "report_md",
+    "document": "report_md", "doc": "report_md", "report_md": "report_md",
+    "tex": "presentation_tex", "latex": "presentation_tex", "source": "presentation_tex",
+    "presentation_pdf": "presentation_pdf", "presentation_tex": "presentation_tex",
+}
 
 # House style enforced on EVERY agent + synthesis, centrally. Engineering output:
 # no decoration, every claim referenced, every finding reproducible.
@@ -42,7 +54,11 @@ STYLE = (
     "Steps', 'Confidence Limitations', 'Summary', etc.) unless explicitly asked.\n"
     "- No emojis. No filler, hype, flattery, or restating the question.\n"
     "- Reference each claim with the table.column, document, or exact value used.\n"
-    "- If something is unknown, missing, or a tool is not implemented, say so in one line."
+    "- If something is unknown, missing, or a tool is not implemented, say so in one line.\n"
+    "- If the user asks to download, export, save, or get a PDF / slide deck / "
+    "presentation / report / document of the findings, CALL the prepare_download tool "
+    "(format 'presentation_pdf' for slides/PDF, 'report_md' for a report). You CAN "
+    "produce downloadable files - never say you cannot."
 )
 
 
@@ -128,6 +144,28 @@ def _run_subagent(parent_sess, sub_name, task):
     return f"[{sub_name}] {final}" if final.strip() else f"[{sub_name}] (no findings)"
 
 
+def _prepare_download(chat_id, fmt_arg, title=None):
+    """Resolve a download request from an agent into a UI artifact event + a tool
+    result that tells the agent the file is ready. Generation itself happens lazily
+    when the user clicks (so the just-finished findings are always included)."""
+    from . import export as export_svc
+    if not chat_id:
+        return None, "Cannot prepare a download outside a saved investigation."
+    fmt = _FORMAT_ALIASES.get((fmt_arg or "").strip().lower(), "")
+    if fmt not in EXPORTERS.all():
+        fmt = "presentation_pdf" if "presentation_pdf" in EXPORTERS.all() else "report_md"
+    decl = EXPORTERS.get(fmt)
+    available = export_svc._available(decl)
+    if not available and fmt == "presentation_pdf" and "presentation_tex" in EXPORTERS.all():
+        fmt, decl, available = "presentation_tex", EXPORTERS.get("presentation_tex"), True
+    ev = {"type": "artifact",
+          "data": {"format": fmt, "label": decl.label, "extension": decl.extension,
+                   "available": available, "title": title, "chat_id": chat_id}}
+    result = (f"Download prepared: {decl.label}. A download button is now shown to the "
+              "user in the chat. Tell them it is ready; do not paste the file contents.")
+    return ev, result
+
+
 def _new_session(chat_id, agent_name):
     agent = AGENTS.get(agent_name)
     system = _style(agent.fn({}) if callable(agent.fn) else "")
@@ -144,6 +182,11 @@ def _drive(sess):
     agent = AGENTS.get(sess["agent"])
     allow = sess.get("allow_tools")
     funcs = _specs([t for t in agent.tools if not allow or t in allow])
+    # prepare_download is a built-in OUTPUT capability: always available to every
+    # agent (regardless of tool restrictions) so any agent can satisfy a download
+    # request. It is intercepted below, never dispatched to the registry fn.
+    if EXPORT_TOOL in TOOLS.all() and not any(f["name"] == EXPORT_TOOL for f in funcs):
+        funcs = funcs + _specs([EXPORT_TOOL])
     sess["status"] = "running"
 
     while sess["step"] < cfg.max_steps:
@@ -197,6 +240,18 @@ def _drive(sess):
                            "data": {"question": q, "chat_id": sess["chat_id"]}}
                     return                                   # suspend; resume on next reply (single-agent)
 
+                if name == EXPORT_TOOL:                       # ---- generate a download ----
+                    args = tc["arguments"] or {}
+                    art, result = _prepare_download(sess.get("chat_id"),
+                                                    args.get("format"), args.get("title"))
+                    if art:
+                        yield art
+                    yield {"type": "tool_result",
+                           "data": {"kind": "tool", "name": name, "result": result}}
+                    sess["msgs"].append({"role": "tool", "name": name,
+                                         "tool_call_id": tc["id"], "content": result})
+                    continue
+
                 if name == CONSULT_TOOL:                     # ---- recruit another agent ----
                     args = tc["arguments"] or {}
                     sub = args.get("agent", "")
@@ -248,7 +303,8 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
         sess["msgs"].append({"role": "tool", "name": p["name"],
                              "tool_call_id": p["tool_call_id"], "content": message})
     else:
-        scoped = (f"Use ONLY these data sources / tables: {', '.join(sources)}.\n\n{message}"
+        scoped = ("Use ONLY these data sources, tables, and documents: "
+                  f"{', '.join(sources)}. Ignore any not listed.\n\n{message}"
                   if sources else message)
         sess["msgs"].append({"role": "user", "content": scoped})
         runs.record(chat_id, {"type": "user_message", "data": {"text": message}})
@@ -361,7 +417,8 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
                              for h in history) + "\n\n")
     scope = ""
     if sources:
-        scope = f"Use ONLY these data sources / tables: {', '.join(sources)}.\n\n"
+        scope = ("Use ONLY these data sources, tables, and documents: "
+                 f"{', '.join(sources)}. Ignore any not listed.\n\n")
     prompt = context + scope + task
 
     runs.start_run(chat_id, "team")

@@ -63,7 +63,7 @@ export default function App() {
           <span className="sub">{t("subtitle")}</span>
         </div>
         <div className="head-right">
-          <button className="ghost" onClick={() => newInvestigation("team")}>{t("newInvestigation")}</button>
+          <button className="primary" onClick={() => newInvestigation("team")}>{t("newInvestigation")}</button>
           <div className="langtoggle">
             <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
             <button className={lang === "de" ? "on" : ""} onClick={() => setLang("de")}>DE</button>

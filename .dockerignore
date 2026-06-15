@@ -1,5 +1,13 @@
 .git
 .gitignore
+infra
+.playwright-mcp
+env
+*.dmg
+*.zip
+*.pkg
+*.tar
+*.tar.gz
 .venv
 venv
 __pycache__

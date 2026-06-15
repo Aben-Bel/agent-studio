@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Callable, Type
 from pydantic import BaseModel
-from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES
+from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES, EXPORTERS
 
 
 # ---- AGENT ----
@@ -86,6 +86,39 @@ def mcp(name, description="", **config):
     It self-registers and appears in /capabilities, same as tools/skills/agents."""
     def deco(fn=None):
         MCP.register(name)(McpDecl(name, description, config, fn))
+        return fn
+    return deco
+
+
+# ---- EXPORTER (output generator) ----
+@dataclass
+class ExporterDecl:
+    name: str                    # stable id, e.g. "presentation_pdf"
+    label: str                   # human label, e.g. "Slide deck (PDF)"
+    description: str
+    extension: str               # file extension WITHOUT dot, e.g. "pdf"
+    media_type: str              # MIME type for the download
+    fn: Callable                 # fn(report: dict) -> bytes
+    needs: list = field(default_factory=list)   # external binaries it needs (e.g. ["latexmk"])
+
+
+def exporter(name, label, description="", extension="txt",
+             media_type="application/octet-stream", needs=None):
+    """Declare an OUTPUT generator. Symmetric to tools/skills/agents: drop a file
+    in exporters/ (any subfolder) with this decorator and it appears in the
+    Download menu - no shared file edited.
+
+        @exporter("presentation_pdf", "Slide deck (PDF)",
+                  extension="pdf", media_type="application/pdf", needs=["latexmk"])
+        def presentation_pdf(report):
+            ...                  # report = the structured investigation (see core.report)
+            return pdf_bytes
+
+    The function receives the structured report (questions, conclusions, the exact
+    tools/queries used as evidence) and returns the artifact bytes."""
+    def deco(fn):
+        EXPORTERS.register(name)(ExporterDecl(name, label, description, extension,
+                                              media_type, fn, needs or []))
         return fn
     return deco
 

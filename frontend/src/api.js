@@ -71,6 +71,47 @@ export async function getSuggestions() {
   return r.json();
 }
 
+// Output formats available for download (Markdown, LaTeX, PDF deck, ...).
+export async function getExportFormats() {
+  const r = await fetch(`${BASE}/export/formats`);
+  return r.json();
+}
+
+// Generate an artifact for a chat and download it. Abortable via `signal`
+// (Stop) and safely re-runnable (Retry); never touches the chat session.
+// On success triggers a browser download and returns { filename }.
+// On failure throws Error(message) parsed from the JSON error body.
+export async function exportReport(chatId, format, signal, title) {
+  const res = await fetch(`${BASE}/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, format, title: title || null }),
+    signal,
+  });
+  const media = res.headers.get("Content-Type") || "";
+  const buf = await res.arrayBuffer();
+  if (!res.ok || media.includes("application/json") || media.includes("text/html")) {
+    // Server returned an error (or an SPA/HTML page) - never save that as a file.
+    let msg = `export failed (${res.status})`;
+    try { msg = JSON.parse(new TextDecoder().decode(buf)).error || msg; } catch { /* */ }
+    throw new Error(msg);
+  }
+  if (buf.byteLength === 0) throw new Error("export produced an empty file");
+
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  const filename = res.headers.get("X-Filename") || (m && m[1]) || `report.${format}`;
+  // Build a correctly-typed Blob from the raw bytes so every browser treats it
+  // as the right file type, then download via a temporary anchor.
+  const blob = new Blob([buf], { type: media || "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.rel = "noopener";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return { filename };
+}
+
 // Full persisted trace of one investigation.
 export async function getRun(chatId) {
   const r = await fetch(`${BASE}/runs/${encodeURIComponent(chatId)}`);

@@ -12,13 +12,14 @@ class Resp:
         self.tool_calls = tool_calls or []
 
 
-def complete(messages, functions=None, system=""):
+def complete(messages, functions=None, system="", max_tokens=1100):
     """messages: neutral history. functions: [{name, description, schema}].
     Returns Resp. Mock mode emulates a tool-using model so the whole demo
-    runs offline; flip MOCK_LLM=0 with AWS creds to use Bedrock."""
+    runs offline; flip MOCK_LLM=0 with AWS creds to use Bedrock. `max_tokens`
+    can be raised for longer outputs (e.g. authoring a full report)."""
     if cfg.mock_llm:
         return _mock(messages, functions or [], system)
-    return _bedrock(messages, functions or [], system)
+    return _bedrock(messages, functions or [], system, max_tokens)
 
 
 # ---------------- offline mock (emulates tool use) ----------------
@@ -87,12 +88,12 @@ def _call(name, args):
 
 # ---------------- real Bedrock converse (verify on AWS) ----------------
 @retry()
-def _bedrock(messages, functions, system):
+def _bedrock(messages, functions, system, max_tokens=1100):
     import boto3
     client = boto3.client("bedrock-runtime", region_name=cfg.region)
     bm = _to_bedrock_messages(messages)
     kwargs = {"modelId": cfg.model_id, "messages": bm,
-              "inferenceConfig": {"maxTokens": 1100, "temperature": 0.3}}
+              "inferenceConfig": {"maxTokens": max_tokens, "temperature": 0.3}}
     if system:
         kwargs["system"] = [{"text": system}]
     if functions:

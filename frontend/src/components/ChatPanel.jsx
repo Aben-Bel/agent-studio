@@ -5,11 +5,20 @@ import { TraceLanes } from "./Trace.jsx";
 import Modal from "./Modal.jsx";
 import AddAgentModal from "./AddAgentModal.jsx";
 import { useI18n } from "../i18n.jsx";
-import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions } from "../api.js";
+import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport } from "../api.js";
 
 const Md = ({ children }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ""}</ReactMarkdown></div>
 );
+
+// Suggestion de-duplication vs. what the user already asked.
+const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+function jaccard(a, b) {
+  const A = new Set(a.split(" ")), B = new Set(b.split(" "));
+  const inter = [...A].filter((x) => B.has(x)).length;
+  const uni = new Set([...A, ...B]).size;
+  return uni ? inter / uni : 0;
+}
 
 // Investigation workspace: Setup (agents / data sources / tools) on the left,
 // conversation in the middle, the orchestrator trace on the right. The trace is
@@ -24,6 +33,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const [tools, setTools] = useState(null);     // null = all
   const [sources, setSources] = useState([]);
   const [srcOn, setSrcOn] = useState(null);     // null = all
+  const [docsOn, setDocsOn] = useState(null);   // selected documents; null = all
   const [adding, setAdding] = useState(false);
   const [dbUrl, setDbUrl] = useState("");
   const [uploads, setUploads] = useState([]);   // per-file upload feedback
@@ -34,6 +44,10 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const [docs, setDocs] = useState([]);          // uploaded documents
   const [inspectDoc, setInspectDoc] = useState(null); // {source, text, loading}
   const [suggestions, setSuggestions] = useState([]); // suggested questions
+  const [suggLoading, setSuggLoading] = useState(true); // initial /suggest in flight
+  const [exportFormats, setExportFormats] = useState([]); // output formats
+  const [exportOpen, setExportOpen] = useState(false);    // download menu open
+  const [exporting, setExporting] = useState(null);       // {format,label,status,error,filename}
 
   const [messages, setMessages] = useState([]);
   const [turns, setTurns] = useState([]);       // [{question, events:[]}] - one per turn, never wiped
@@ -47,6 +61,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const [traceOpen, setTraceOpen] = useState(true);
 
   const abortRef = useRef(null);
+  const exportAbort = useRef(null);
   const msgRef = useRef(null), feedRef = useRef(null), taRef = useRef(null);
   const stickMsg = useRef(true), stickFeed = useRef(true);
   function autoGrow(el) { if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 160) + "px"; }
@@ -68,12 +83,40 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     setInspectDoc({ source: d.source, text: r.text || "", error: r.error });
   }
   useEffect(() => { loadSources(); }, []);
-  useEffect(() => { getSuggestions().then((s) => setSuggestions(s.questions || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    setSuggLoading(true);
+    getSuggestions().then((s) => setSuggestions(s.questions || [])).catch(() => {}).finally(() => setSuggLoading(false));
+  }, []);
+  useEffect(() => { getExportFormats().then((r) => setExportFormats(r.formats || [])).catch(() => {}); }, []);
   function askSuggestion(q) {
     if (busy) return;
     if (!agents.length) { setError("Select at least one agent in Setup."); return; }
     run(q);
   }
+
+  // ---- Output generation (Download). A separate request from the chat: the user
+  // can Stop it or Retry it and the conversation is never affected. ----
+  async function doExport(fmt) {
+    setExportOpen(false);
+    if (!messages.length) { setExporting({ status: "error", error: t("nothingToExport") }); return; }
+    const ac = new AbortController(); exportAbort.current = ac;
+    setExporting({ format: fmt.name, label: fmt.label, status: "preparing" });
+    try {
+      const { filename } = await exportReport(chatId, fmt.name, ac.signal);
+      setExporting({ format: fmt.name, label: fmt.label, status: "done", filename });
+      setTimeout(() => setExporting((e) => (e && e.status === "done" ? null : e)), 6000);
+    } catch (e) {
+      if (ac.signal.aborted) { setExporting(null); return; }
+      setExporting({ format: fmt.name, label: fmt.label, status: "error", error: String(e.message || e) });
+    } finally {
+      exportAbort.current = null;
+    }
+  }
+  const stopExport = () => exportAbort.current && exportAbort.current.abort();
+  const retryExport = () => {
+    const f = exportFormats.find((x) => x.name === exporting?.format);
+    if (f) doExport(f);
+  };
 
   // The persisted audit trail is the SOURCE OF TRUTH for the trace. We split its
   // events into turns (on user_message) and never wipe earlier turns.
@@ -94,6 +137,9 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
       for (const s of r.steps) {
         if (s.type === "user_message") msgs.push({ role: "user", text: s.data.text });
         else if (s.type === "final" && !s.data.depth) msgs.push({ role: "assistant", text: s.data.message });
+        else if (s.type === "artifact" && !msgs.some((x) => x.role === "artifact" && x.format === s.data.format))
+          msgs.push({ role: "artifact", format: s.data.format, label: s.data.label,
+                      extension: s.data.extension, available: s.data.available !== false });
       }
       setMessages(msgs);
     } catch { /* */ }
@@ -123,6 +169,21 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     const cur = srcOn === null ? sources.map((s) => s.name) : srcOn;
     const next = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n];
     setSrcOn(next.length === sources.length ? null : next);
+  }
+  const docOn = (n) => (docsOn === null ? true : docsOn.includes(n));
+  function toggleDoc(n) {
+    const cur = docsOn === null ? docs.map((d) => d.source) : docsOn;
+    const next = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n];
+    setDocsOn(next.length === docs.length ? null : next);
+  }
+  // The data the run is scoped to: selected SQL sources + selected documents.
+  // undefined when nothing is deselected (= use everything).
+  function scopedSources() {
+    if (srcOn === null && docsOn === null) return undefined;
+    const s = (srcOn === null ? sources.map((x) => x.name) : srcOn);
+    const d = (docsOn === null ? docs.map((x) => x.source) : docsOn);
+    const list = [...s, ...d];
+    return list.length ? list : undefined;
   }
 
   function describeResult(x) {
@@ -186,7 +247,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     setTurns((t) => [...t, { question: message, events: [] }]);   // new turn, keep old ones
     stickMsg.current = true; stickFeed.current = true;
     setBusy(true); setAwaiting(null); setError(null); setStatus("dispatching..."); setLastMsg(message);
-    setSuggestions([]);
+    setSuggestions([]); setSuggLoading(true);
     const ac = new AbortController(); abortRef.current = ac;
 
     let answer = "", paused = null, errored = null;
@@ -194,7 +255,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
       await runChat(
         { agent: "team", message, chat_id: chatId, agents,
           allow_tools: tools === null ? undefined : tools,
-          sources: srcOn === null ? undefined : srcOn },
+          sources: scopedSources() },
         (ev) => {
           if (ev.type !== "user_message") appendEvent(ev);
           const d = ev.data || {}; const who = d.agent_scope ? d.agent_scope + ": " : "";
@@ -207,7 +268,11 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           if (ev.type === "final" && !d.depth) answer = d.message;
           if (ev.type === "needs_human") paused = d.question;
           if (ev.type === "error" && !d.agent_scope) errored = d.message;
-          if (ev.type === "suggestions") setSuggestions(d.questions || []);
+          if (ev.type === "suggestions") { setSuggestions(d.questions || []); setSuggLoading(false); }
+          if (ev.type === "artifact") setMessages((m) =>
+            m.some((x) => x.role === "artifact" && x.format === d.format) ? m
+              : [...m, { role: "artifact", format: d.format, label: d.label,
+                         extension: d.extension, available: d.available !== false }]);
         }, ac.signal);
     } catch (e) {
       if (ac.signal.aborted) { setMessages((m) => [...m, { role: "note", text: "stopped" }]); setBusy(false); setStatus(""); abortRef.current = null; return; }
@@ -218,7 +283,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     else if (answer) setMessages((m) => [...m, { role: "assistant", text: answer }]);
     else if (errored) { setError(errored); setMessages((m) => [...m, { role: "assistant", text: "Error: " + errored, error: true }]); }
     else setMessages((m) => [...m, { role: "assistant", text: "_(no answer was produced)_" }]);
-    setBusy(false);
+    setBusy(false); setSuggLoading(false);
     reloadTurns();   // reconcile the trace with the authoritative audit trail
   }
 
@@ -232,13 +297,40 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const stop = () => abortRef.current && abortRef.current.abort();
   const retry = () => { if (lastMsg) { setError(null); run(lastMsg); } };
 
+  // Don't suggest a question the user already asked this chat (exact or near-dup).
+  const askedNorm = messages.filter((m) => m.role === "user").map((m) => norm(m.text));
+  const freshSuggestions = suggestions.filter((q) => {
+    const nq = norm(q);
+    return !askedNorm.some((a) => a === nq || jaccard(a, nq) > 0.6);
+  });
+
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
-        {onBack && <button onClick={onBack}>{t("overview")}</button>}
+        {onBack && <button onClick={onBack}>← {t("overview")}</button>}
         <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? t("hideSetup") : t("setup")}</button>
         <span className="muted">{t("investigate")} - {agents.length}<span className="chatid"> - {chatId.slice(0, 8)}</span></span>
         {busy && <button className="stopbtn" onClick={stop}>{t("stop")}</button>}
+        <div className="dl-wrap">
+          <button className="mini" disabled={!messages.length} title={t("downloadHint")}
+            onClick={() => setExportOpen((v) => !v)}>{t("download")} ▾</button>
+          {exportOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setExportOpen(false)} />
+              <div className="dl-menu">
+                <div className="dl-head">{t("generateOutput")}</div>
+                {exportFormats.length === 0 && <div className="dl-item muted small">{t("loading")}</div>}
+                {exportFormats.map((f) => (
+                  <button key={f.name} className="dl-item" disabled={!f.available}
+                    onClick={() => doExport(f)} title={f.description}>
+                    <span className="dl-label">{f.label}</span>
+                    {!f.available && <span className="muted small">{t("needs")} {(f.needs || []).join(", ")}</span>}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? t("hideTrace") : t("trace")}</button>
       </div>
 
@@ -300,9 +392,9 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
               ))}
               {docs.map((d) => (
                 <div key={d.source} className="srcrow">
-                  <span className="docicon" title="uploaded document">doc</span>
+                  <input type="checkbox" checked={docOn(d.source)} onChange={() => toggleDoc(d.source)} />
                   <button className="srclink" onClick={() => openDoc(d)} title="view this document">
-                    {d.source} <span className="muted small">{d.chars}c</span>
+                    <span className="docicon">doc</span> {d.source} <span className="muted small">{d.chars}c</span>
                   </button>
                 </div>
               ))}
@@ -324,11 +416,36 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
         )}
 
         <div className="center">
-          <div className="messages" ref={msgRef} onScroll={() => onScroll(msgRef, stickMsg)}>
-            {messages.length === 0 && <div className="muted small">{t("describePrompt")}</div>}
+          <div className={"messages" + (messages.length === 0 ? " empty" : "")} ref={msgRef} onScroll={() => onScroll(msgRef, stickMsg)}>
+            {messages.length === 0 && (
+              <div className="empty-hero">
+                <div className="empty-mark">◎</div>
+                <h2>{t("startInvestigation")}</h2>
+                <p>{t("describePrompt")}</p>
+                {(suggLoading || freshSuggestions.length > 0) && (
+                  <div className="starter-grid">
+                    {suggLoading
+                      ? <span className="spin" title={t("loading")} />
+                      : freshSuggestions.map((q, i) => (
+                          <button key={i} className="starter-chip" onClick={() => askSuggestion(q)} title={q}>{q}</button>
+                        ))}
+                  </div>
+                )}
+              </div>
+            )}
             {messages.map((m, i) => (
               m.role === "note"
                 ? <div key={i} className="msgnote">{m.text}</div>
+                : m.role === "artifact"
+                ? <div key={i} className="artifact-card">
+                    <span className="art-icon">⬇</span>
+                    <div className="art-text">
+                      <div className="art-label">{m.label}</div>
+                      <div className="muted small">{t("readyToDownload")}</div>
+                    </div>
+                    <button className="primary" disabled={!m.available || exporting?.status === "preparing"}
+                      onClick={() => doExport({ name: m.format, label: m.label })}>{t("download")}</button>
+                  </div>
                 : <div key={i} className={"msg " + m.role + (m.pending ? " pendingq" : "") + (m.error ? " errmsg" : "")}>
                     {m.pending && <span className="ask">needs your input</span>}
                     {m.role === "assistant" ? <Md>{m.text}</Md> : m.text}
@@ -336,12 +453,31 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             ))}
             {busy && <div className="statusline"><span className="spin" /> {status || "working..."}</div>}
           </div>
-          {suggestions.length > 0 && !busy && !awaiting && (
+          {messages.length > 0 && !busy && !awaiting && (suggLoading || freshSuggestions.length > 0) && (
             <div className="suggestions">
-              {messages.length === 0 && <span className="muted small sugg-label">{t("tryAsking")}</span>}
-              {suggestions.map((q, i) => (
-                <button key={i} className="suggestion-chip" onClick={() => askSuggestion(q)} title={q}>{q}</button>
-              ))}
+              <span className="muted small sugg-label">{t("tryAsking")}</span>
+              {suggLoading
+                ? <span className="spin" title={t("loading")} />
+                : freshSuggestions.map((q, i) => (
+                    <button key={i} className="suggestion-chip" onClick={() => askSuggestion(q)} title={q}>{q}</button>
+                  ))}
+            </div>
+          )}
+          {exporting && (
+            <div className={"exportbar " + exporting.status}>
+              {exporting.status === "preparing" && (
+                <><span className="spin" /> <span>{t("preparing")} {exporting.label}…</span>
+                  <button onClick={stopExport}>{t("stop")}</button></>
+              )}
+              {exporting.status === "done" && (
+                <><span className="ok">✓ {t("downloaded")} {exporting.filename}</span>
+                  <button className="xbtn" title="dismiss" onClick={() => setExporting(null)}>×</button></>
+              )}
+              {exporting.status === "error" && (
+                <><span className="warn">{exporting.error}</span>
+                  {exporting.format && <button onClick={retryExport}>{t("retry")}</button>}
+                  <button className="xbtn" title="dismiss" onClick={() => setExporting(null)}>×</button></>
+              )}
             </div>
           )}
           {awaiting && <div className="askbanner"><strong>{t("needsInput")}</strong> {t("typeAnswer")}</div>}
@@ -358,7 +494,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
         {traceOpen && (
         <aside className="feed" ref={feedRef} onScroll={() => onScroll(feedRef, stickFeed)}>
           <div className="feed-title">{t("orchestrator")} <span className="muted small">- {t("clickStep")}</span></div>
-          {turns.length === 0 && <div className="muted small">{t("stepsAppear")}</div>}
+          {turns.length === 0 && <div className="feed-empty muted small">{t("stepsAppear")}</div>}
           {turns.map((turn, i) => (
             <div key={i} className="turn-block">
               {turn.question && <div className="turn-q" title={turn.question}>{turn.question}</div>}
