@@ -12,7 +12,7 @@ class RoleSupportArgs(BaseModel):
 
 
 @tool(
-    "aneetta_role_support",
+    "yield_persona_support",
     "Match a semiconductor user role or broad group to analyzer personas and check whether dataset columns support that role.",
     RoleSupportArgs,
 )
