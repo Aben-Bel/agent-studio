@@ -20,6 +20,16 @@ body {
 .app { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
 /* Investigation workspace gets 80% of the viewport, centered. */
 .app.app-wide { max-width: 80vw; }
+/* Investigation view fills the viewport exactly - the page itself does not scroll;
+   each column scrolls internally. */
+.app.app-fixed {
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  padding-top: 16px; padding-bottom: 10px;
+}
+.app.app-fixed > header, .app.app-fixed > nav.tabs { flex: 0 0 auto; }
+.app.app-fixed > nav.tabs { margin: 10px 0; }
+.app.app-fixed > main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.app.app-fixed > main > .chat-wrap { flex: 1 1 auto; height: auto; min-height: 0; }
 h1 { font-size: 22px; font-weight: 700; margin: 0; }
 h2 { font-size: 18px; font-weight: 600; margin: 0 0 6px; }
 .card {
@@ -185,6 +195,7 @@ button.ghost { background: transparent; }
 .db-mini button { font-size: 12px; padding: 5px 8px; }
 @media (max-width: 820px) {
   .app, .app.app-wide { max-width: 100%; padding: 14px 12px 40px; }
+  .app.app-fixed { height: auto; overflow: visible; }   /* mobile scrolls normally */
   .chat-wrap { height: auto; min-height: 0; }
   .investigate-grid,
   .investigate-grid.no-setup,

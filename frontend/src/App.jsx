@@ -56,7 +56,7 @@ export default function App() {
   const TABS = [["overview", t("overview")], ["investigate", t("investigate")]];
 
   return (
-    <div className="app app-wide">
+    <div className={"app app-wide" + (view === "investigate" ? " app-fixed" : "")}>
       <header>
         <div className="brand">
           <h1>{t("title")}</h1>
