@@ -161,8 +161,15 @@ button.ghost { background: transparent; }
   text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 6px;
 }
 .setup-title .mini { margin-left: auto; }
-/* each setup section is a fixed-height box that scrolls as items grow */
-.setup-list { max-height: 150px; overflow-y: auto; padding-right: 2px; }
+/* each setup section is a VISIBLE fixed-height box that scrolls as items grow */
+.setup-list {
+  max-height: 150px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: #fafdfb; padding: 5px 8px;
+}
+.setup-list::-webkit-scrollbar { width: 9px; }
+.setup-list::-webkit-scrollbar-thumb { background: #c7dcd0; border-radius: 5px; border: 2px solid #fafdfb; }
+.setup-list::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .mini { font-size: 11px; padding: 1px 7px; }
 .check { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 13px; cursor: pointer; margin: 0; color: var(--text); }
 .check input { width: auto; }
