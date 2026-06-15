@@ -179,13 +179,24 @@ def _drive(sess):
                 yield {"type": "tool_call",
                        "data": {"kind": kind, "name": name, "args": tc["arguments"]}}
 
-                if name == HUMAN_TOOL:                       # ---- pause for the human ----
+                if name == HUMAN_TOOL:                       # ---- human-in-the-loop ----
                     q = (tc["arguments"] or {}).get("question") or "The agent needs your input."
+                    if sess.get("no_pause"):
+                        # Parallel team mode cannot pause one of N concurrent agents.
+                        # Don't fake a pause; tell the agent to proceed and note the gap.
+                        result = ("No human prompt is available in parallel mode. Proceed "
+                                  "with the data you have and clearly note this missing "
+                                  "input in your findings: " + q)
+                        yield {"type": "tool_result",
+                               "data": {"kind": "tool", "name": name, "result": result}}
+                        sess["msgs"].append({"role": "tool", "name": name,
+                                             "tool_call_id": tc["id"], "content": result})
+                        continue
                     sess["pending"] = {"tool_call_id": tc["id"], "name": name}
                     sess["status"] = "awaiting_human"
                     yield {"type": "needs_human",
                            "data": {"question": q, "chat_id": sess["chat_id"]}}
-                    return                                   # suspend; resume on next reply
+                    return                                   # suspend; resume on next reply (single-agent)
 
                 if name == CONSULT_TOOL:                     # ---- recruit another agent ----
                     args = tc["arguments"] or {}
@@ -297,7 +308,8 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
             system = _style(agent.fn({}) if callable(agent.fn) else "")
             sub = {"chat_id": chat_id, "agent": name, "system": system,
                    "msgs": [{"role": "user", "content": prompt}], "status": "running",
-                   "pending": None, "step": 0, "inbox": [], "allow_tools": allow}
+                   "pending": None, "step": 0, "inbox": [], "allow_tools": allow,
+                   "no_pause": True}
             q.put({"type": "agent_switch",
                    "data": {"agent": name, "role": "working", "depth": 1, "agent_scope": name}})
             final = ""

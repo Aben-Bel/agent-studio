@@ -44,7 +44,7 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
             every step - each tool call, the data and documents it touches - streams live and is recorded.
           </p>
         </div>
-        <button className="primary" onClick={() => onGo("investigate")}>New investigation</button>
+        <button className="primary" onClick={() => onPickAgent("team")}>New investigation</button>
       </div>
 
       <div className="card">
