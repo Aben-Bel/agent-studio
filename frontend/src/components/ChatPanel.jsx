@@ -9,9 +9,9 @@ const Md = ({ children }) => (
 );
 
 // Investigation workspace: Setup (agents / data sources / tools) on the left,
-// conversation in the middle, live orchestrator trace on the right. The page is
-// fixed; each column scrolls on its own. One input: while it works your text is
-// ADDED CONTEXT, once it's done it's a REPLY.
+// conversation in the middle, the orchestrator trace on the right. The trace is
+// kept PER TURN so previous turns are never wiped on a reply. One input: while it
+// works your text is ADDED CONTEXT, once it is done it is a REPLY.
 export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) {
   const specialists = (caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent"));
   const allTools = [...(caps.tools || []), ...(caps.skills || [])];
@@ -24,7 +24,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
   const [dbUrl, setDbUrl] = useState("");
 
   const [messages, setMessages] = useState([]);
-  const [events, setEvents] = useState([]);
+  const [turns, setTurns] = useState([]);       // [{question, events:[]}] - one per turn, never wiped
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -33,41 +33,55 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
   const [lastMsg, setLastMsg] = useState("");
   const [setupOpen, setSetupOpen] = useState(true);
   const [traceOpen, setTraceOpen] = useState(true);
+
   const abortRef = useRef(null);
   const msgRef = useRef(null), feedRef = useRef(null), taRef = useRef(null);
   const stickMsg = useRef(true), stickFeed = useRef(true);
   function autoGrow(el) { if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 160) + "px"; }
 
-  // defaults once capabilities/sources load
   useEffect(() => { if (!agents.length && specialists.length) setAgents(specialists.map((a) => a.name)); }, [caps]); // eslint-disable-line
+
   async function loadSources() {
     try { const s = await getSources(); setSources(s.sources || []); setSrcOn((on) => on ?? (s.sources || []).map((x) => x.name)); }
     catch { /* */ }
   }
   useEffect(() => { loadSources(); }, []);
 
-  // restore a past chat from the audit trail (works for team + single)
-  useEffect(() => {
-    let alive = true;
-    getRun(chatId).then((r) => {
-      if (!alive || !r?.steps?.length) return;
+  // The persisted audit trail is the SOURCE OF TRUTH for the trace. We split its
+  // events into turns (on user_message) and never wipe earlier turns.
+  function buildTurns(steps) {
+    const ts = []; let cur = null;
+    for (const s of steps) {
+      if (s.type === "user_message") { cur = { question: s.data.text, events: [] }; ts.push(cur); }
+      else { if (!cur) { cur = { question: "", events: [] }; ts.push(cur); } cur.events.push({ type: s.type, data: s.data, ts: s.ts }); }
+    }
+    return ts;
+  }
+  async function reloadFromAudit() {
+    try {
+      const r = await getRun(chatId);
+      if (!r?.steps?.length) return;
+      setTurns(buildTurns(r.steps));
       const msgs = [];
       for (const s of r.steps) {
         if (s.type === "user_message") msgs.push({ role: "user", text: s.data.text });
         else if (s.type === "final" && !s.data.depth) msgs.push({ role: "assistant", text: s.data.message });
       }
       setMessages(msgs);
-      setEvents(r.steps.map((s) => ({ type: s.type, data: s.data, ts: s.ts })));
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, [chatId]);
+    } catch { /* */ }
+  }
+  async function reloadTurns() {   // refresh only the trace (keep live messages)
+    try { const r = await getRun(chatId); if (r?.steps?.length) setTurns(buildTurns(r.steps)); } catch { /* */ }
+  }
+  // Restore a past chat on open.
+  useEffect(() => { reloadFromAudit(); }, [chatId]); // eslint-disable-line
 
   function onScroll(ref, stick) {
     const el = ref.current; if (!el) return;
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   }
   useEffect(() => { if (stickMsg.current && msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight; }, [messages, status]);
-  useEffect(() => { if (stickFeed.current && feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [events]);
+  useEffect(() => { if (stickFeed.current && feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [turns]);
 
   const toggle = (list, set, n) => set(list.includes(n) ? list.filter((x) => x !== n) : [...list, n]);
   const toolOn = (n) => (tools === null ? true : tools.includes(n));
@@ -92,11 +106,22 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
     setAdding(true); await connectDb(dbUrl.trim()).catch(() => {}); setDbUrl(""); await loadSources(); setAdding(false);
   }
 
+  function appendEvent(ev) {
+    setTurns((t) => {
+      if (!t.length) return t;
+      const c = t.slice(); const last = c[c.length - 1];
+      c[c.length - 1] = { ...last, events: [...last.events, ev] };
+      return c;
+    });
+  }
+
   async function run(message) {
     setMessages((m) => [...m, { role: "user", text: message }]);
-    setEvents([]); stickMsg.current = true; stickFeed.current = true;
+    setTurns((t) => [...t, { question: message, events: [] }]);   // new turn, keep old ones
+    stickMsg.current = true; stickFeed.current = true;
     setBusy(true); setAwaiting(null); setError(null); setStatus("dispatching..."); setLastMsg(message);
     const ac = new AbortController(); abortRef.current = ac;
+
     let answer = "", paused = null, errored = null;
     try {
       await runChat(
@@ -104,7 +129,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
           allow_tools: tools === null ? undefined : tools,
           sources: srcOn === null ? undefined : srcOn },
         (ev) => {
-          setEvents((e) => [...e, ev]);
+          if (ev.type !== "user_message") appendEvent(ev);
           const d = ev.data || {}; const who = d.agent_scope ? d.agent_scope + ": " : "";
           if (ev.type === "agent_switch" && d.role === "dispatch") setStatus("dispatched to " + (d.agents || []).join(", "));
           else if (ev.type === "agent_switch" && d.role === "working") setStatus(d.agent + " started");
@@ -126,10 +151,12 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
     else if (errored) { setError(errored); setMessages((m) => [...m, { role: "assistant", text: "Error: " + errored, error: true }]); }
     else setMessages((m) => [...m, { role: "assistant", text: "_(no answer was produced)_" }]);
     setBusy(false);
+    reloadTurns();   // reconcile the trace with the authoritative audit trail
   }
 
   function submit() {
     const text = input.trim(); if (!text) return; setInput("");
+    if (taRef.current) taRef.current.style.height = "auto";
     if (busy) { addContext(chatId, text).catch(() => {}); setMessages((m) => [...m, { role: "note", text: "context added: " + text }]); return; }
     if (!agents.length) { setError("Select at least one agent in Setup."); return; }
     run(text);
@@ -149,7 +176,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
 
       <div className="investigate-grid"
         style={{ gridTemplateColumns: `${setupOpen ? "210px " : ""}minmax(0,1fr)${traceOpen ? " 340px" : ""}` }}>
-        {/* ---- Setup column ---- */}
+
         {setupOpen && (
         <aside className="setup">
           <div className="setup-sec">
@@ -168,7 +195,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
             </div>
             {adding && (
               <div className="addsrc">
-                <label className="filebtn">{adding ? "Upload CSV / PDF" : "Upload"}<input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={addFiles} /></label>
+                <label className="filebtn">Upload CSV / PDF<input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={addFiles} /></label>
                 <div className="db-mini">
                   <input placeholder="postgresql://..." value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addDb()} />
                   <button onClick={addDb}>DB</button>
@@ -196,7 +223,6 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
         </aside>
         )}
 
-        {/* ---- Conversation column ---- */}
         <div className="center">
           <div className="messages" ref={msgRef} onScroll={() => onScroll(msgRef, stickMsg)}>
             {messages.length === 0 && <div className="muted small">Describe a defect or yield drop. The selected agents investigate in parallel.</div>}
@@ -221,12 +247,16 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack }) 
           </div>
         </div>
 
-        {/* ---- Trace column ---- */}
         {traceOpen && (
         <aside className="feed" ref={feedRef} onScroll={() => onScroll(feedRef, stickFeed)}>
           <div className="feed-title">Orchestrator <span className="muted small">- click a step</span></div>
-          {events.length === 0 && <div className="muted small">steps appear here as the agents work</div>}
-          <TraceLanes events={events} leadLabel="orchestrator" />
+          {turns.length === 0 && <div className="muted small">steps appear here as the agents work</div>}
+          {turns.map((turn, i) => (
+            <div key={i} className="turn-block">
+              {turn.question && <div className="turn-q" title={turn.question}>{turn.question}</div>}
+              <TraceLanes events={turn.events} leadLabel="orchestrator" />
+            </div>
+          ))}
         </aside>
         )}
       </div>

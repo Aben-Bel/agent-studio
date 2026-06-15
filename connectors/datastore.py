@@ -1,5 +1,5 @@
 import os, csv, re, random
-from sqlalchemy import (create_engine, inspect, text,
+from sqlalchemy import (create_engine, inspect, text, event,
                         MetaData, Table, Column, String)
 from sqlalchemy.engine import make_url
 from core.config import cfg
@@ -40,7 +40,22 @@ def _engine(source="local"):
     if source not in _ENGINES:
         if source == "local":
             os.makedirs(os.path.dirname(cfg.db_path) or ".", exist_ok=True)
-            _ENGINES["local"] = create_engine(f"sqlite:///{cfg.db_path}")
+            # Team mode runs several agent threads at once, all touching this
+            # SQLite file (audit writes + tool reads). WAL + a long busy timeout
+            # let concurrent access WAIT for a lock instead of failing with
+            # "database is locked" (which otherwise kills the SSE stream).
+            eng = create_engine(
+                f"sqlite:///{cfg.db_path}",
+                connect_args={"timeout": 30, "check_same_thread": False})
+
+            @event.listens_for(eng, "connect")
+            def _sqlite_pragmas(dbapi_conn, _rec):   # noqa: ANN001
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA busy_timeout=30000")
+                cur.close()
+
+            _ENGINES["local"] = eng
         else:
             raise KeyError(f"unknown data source '{source}'. "
                            f"Connect it first via connect_db().")

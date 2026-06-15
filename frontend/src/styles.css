@@ -226,6 +226,15 @@ button.ghost { background: transparent; }
 /* wide markdown tables scroll instead of overflowing the conversation column */
 .md table { display: block; overflow-x: auto; max-width: 100%; }
 
+/* per-turn trace blocks - previous turns stay visible */
+.turn-block { margin-bottom: 14px; }
+.turn-block + .turn-block { border-top: 2px solid var(--line); padding-top: 10px; }
+.turn-q {
+  font-size: 12px; font-weight: 600; color: var(--accent-deep); background: var(--accent-weak);
+  border-radius: 6px; padding: 4px 8px; margin-bottom: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* ---- add-context (mid-run) ---- */
 .row.addctx { margin-top: 8px; }
 .row.addctx input { flex: 1; font-size: 13px; }
