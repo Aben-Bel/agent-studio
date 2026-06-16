@@ -1,4 +1,5 @@
 import inspect
+import itertools
 import threading
 from queue import Queue
 from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES, EXPORTERS
@@ -111,34 +112,97 @@ _TEXT_FIELDS = {
     "suggestions":   ["questions"],   # a LIST of strings - paired element-wise
 }
 
+# Event fields that are DATA/INTERNAL, not user-facing prose: they get a source-side
+# pair for back-compat but are NEVER background-translated (a tool result is JSON, a
+# thinking trace is internal) — translating them wastes LLM calls for no UI benefit.
+_NO_BG_TRANSLATE = {("tool_result", "result"), ("thinking", "text")}
 
-def _localize(ev, lang):
-    """Pair every human-readable field of an event into {en, de} so the frontend
-    can switch language client-side with no re-run. For a field `X` it adds
-    `X_i18n` = {en, de}; for the `questions` list it adds `questions_i18n` =
-    {en:[...], de:[...]}. The ORIGINAL field is left untouched (back-compat:
-    an old client that ignores `_i18n` still sees the run-language text).
 
-    `lang` is the language the text was PRODUCED in; the other side is translated.
-    Offline (mock) `translate` is a no-op, so both sides equal the source - safe.
-    Best-effort: a failed translation falls back to the source string, never
-    blanks. EN-origin events are still paired (so an EN run can switch to DE)."""
+_eid_counter = itertools.count(1)
+
+
+def _localize(ev, lang, deferrals=None):
+    """Pair every human-readable field of an event into {en, de} so the frontend can
+    switch language client-side with no re-run. The SOURCE side (the run language) is
+    filled instantly; the OTHER side is filled only when cheap (templated phrases), else
+    left EMPTY and queued in `deferrals` for background translation after the turn — this
+    keeps the per-event LLM translation call off the critical path while preserving the
+    full pair (the empty side is patched in later via a `translation_update` event).
+
+    Every paired event gets a stable `eid` so a later translation_update can target it.
+    `deferrals` (if given) collects {eid, field, lang(target), text} to translate later.
+    Offline (mock) translate is a no-op; failures fall back to source, never blank."""
     fields = _TEXT_FIELDS.get(ev.get("type"))
     if not fields:
         return ev
     d = dict(ev.get("data") or {})
+    other = _other(lang)
+    paired = False
     for f in fields:
         val = d.get(f)
         if f == "questions":                      # list of strings (agent-produced)
             if not val:
                 continue
-            d["questions_i18n"] = {lang: list(val),
-                                   _other(lang): [_tr(q, _other(lang)) for q in val]}
+            # questions are short; translate the cheap static ones, defer the rest as a list
+            d["questions_i18n"] = {lang: list(val), other: ["" for _ in val]}
+            paired = True
+            if deferrals is not None and not cfg.mock_llm:
+                deferrals.append({"eid": d.get("eid"), "field": "questions",
+                                  "lang": other, "text": list(val)})
         else:
             if not (val or "").strip():
                 continue
             d[f + "_i18n"] = _pair(val, lang)
+            paired = True
+            # Queue the other side for background translation — UNLESS it was filled
+            # cheaply already, or this field is data/internal (tool results, thinking).
+            if (deferrals is not None and not cfg.mock_llm
+                    and not d[f + "_i18n"].get(other)
+                    and (ev.get("type"), f) not in _NO_BG_TRANSLATE):
+                d.setdefault("eid", None)
+                deferrals.append({"field": f, "lang": other, "text": val, "_d": d})
+    if paired and not d.get("eid"):
+        d["eid"] = f"e{next(_eid_counter)}"
+        # back-fill eid into any deferral rows for this event
+        for dr in (deferrals or []):
+            if dr.get("_d") is d:
+                dr["eid"] = d["eid"]
+        for dr in (deferrals or []):
+            if dr.get("field") == "questions" and dr.get("eid") is None:
+                dr["eid"] = d["eid"]
+    for dr in (deferrals or []):
+        dr.pop("_d", None)
     return {"type": ev["type"], "data": d}
+
+
+def _drain_translations(chat_id, deferrals):
+    """Translate the deferred OTHER-language sides AFTER the answer has been sent, and
+    yield a `translation_update` event per item so the frontend patches that message's
+    pair in place. Also persists the filled translation onto the recorded event in the
+    trail (so a reload has the complete pair). Best-effort: a failure is skipped, never
+    blanks. The answer is already on screen — this runs while the user reads it."""
+    seen = set()
+    for dr in deferrals:
+        eid, field, target, text = dr.get("eid"), dr.get("field"), dr.get("lang"), dr.get("text")
+        if not eid or field is None:
+            continue
+        key = (eid, field)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if isinstance(text, list):
+                filled = [_tr(t, target) for t in text]
+            else:
+                filled = _tr(text, target)
+        except Exception:
+            continue
+        runs.patch_translation(chat_id, eid, field, target, filled)
+        ev = {"type": "translation_update",
+              "data": {"eid": eid, "field": field, "lang": target,
+                       "text": filled, "chat_id": chat_id}}
+        runs.record(chat_id, ev)
+        yield ev
 
 
 def _other(lang):
@@ -146,14 +210,22 @@ def _other(lang):
 
 
 def _pair(text, lang):
-    """Build {en, de} for one string. KEY: orchestrator-templated strings are
-    ALWAYS English no matter the run language, so they are pinned to 'en' and
-    translated to 'de'. Agent-produced prose is in the run language (`lang`)
-    because the agent was told to answer in it. Detecting the source correctly is
-    what makes templated trace lines (progress, boilerplate) flip too."""
+    """Build the {en, de} pair for one string. The SOURCE side is filled eagerly (free);
+    the OTHER side is translated LAZILY — only templated phrases (static map, no LLM) are
+    filled now, real prose is left for on-demand translation when the user actually toggles
+    language. This removes a synchronous Bedrock translation call from EVERY streamed event
+    on the critical path (the dominant per-turn latency), while losing no feature: the
+    frontend falls back to the source side until the other language is fetched, and a user
+    on their own language never needed the other side at all.
+
+    src is detected so templated trace lines (always English) still flip via the static map."""
     src = "en" if _is_templated(text) else lang
     other = _other(src)
-    return {src: text, other: _tr(text, other)}
+    other_text = _tr_static(text, other)        # static map only — never an LLM call here
+    pair = {src: text}
+    if other_text is not None:
+        pair[other] = other_text                # cheap templated translation, fill it now
+    return pair
 
 
 # Orchestrator-emitted English templates (always English regardless of run lang).
@@ -176,10 +248,10 @@ def _is_templated(text):
     return t in _PHRASE_DE or t.startswith("reasoning (step ")
 
 
-def _tr(text, target_lang):
-    """Translate one string to target_lang. Fast paths first: known templated
-    phrases and the 'reasoning (step N)' progress line are mapped statically (no
-    LLM call); everything else goes through the model translator (a no-op offline)."""
+def _tr_static(text, target_lang):
+    """Static-map translation ONLY (no LLM). Returns the translated string for known
+    templated phrases / the 'reasoning (step N)' line, else None — signalling the caller
+    to defer real-prose translation to on-demand rather than block the run on an LLM call."""
     text = text or ""
     if not text.strip():
         return text
@@ -189,6 +261,16 @@ def _tr(text, target_lang):
     if text.startswith("reasoning (step "):
         return (text.replace("reasoning (step ", "Überlegung (Schritt ", 1)
                 if target_lang == "de" else text)
+    return None
+
+
+def _tr(text, target_lang):
+    """Translate one string to target_lang. Static fast paths first (no LLM call);
+    everything else goes through the model translator (a no-op offline). Used by the
+    on-demand translation endpoint when the user toggles language."""
+    static = _tr_static(text, target_lang)
+    if static is not None:
+        return static
     return model.translate(text, target_lang)
 
 
@@ -495,12 +577,14 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
         yield ev
 
     # Every streamed event is persisted to the audit trail (full visibility).
-    # _localize pairs each event's text into {en, de} so the whole transcript +
-    # trace can switch language client-side with no re-run.
+    # _localize pairs each event's text into {en, de}; the SOURCE side renders now, the
+    # OTHER side is deferred to background translation (drained after the answer) so no
+    # translation LLM call blocks the run.
     # Enforce the run's data scope so every tool the agent calls only sees the
     # user's selected sources/documents (set on this thread for the _drive loop).
     from connectors import scope as _scope
     _scope.set_scope(sess.get("sources"))
+    deferrals = []
     try:
         for ev in _drive(sess):
             # Tie each claim in the answer to the tool result that supports it (and keep
@@ -515,9 +599,12 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
                     ev["data"]["references"] = refs
                 except Exception:
                     pass
-            ev = _localize(ev, lang)
+            ev = _localize(ev, lang, deferrals)
             runs.record(chat_id, ev)
             yield ev
+        # Answer is shown; fill the deferred other-language sides in the background.
+        for tu in _drain_translations(chat_id, deferrals):
+            yield tu
     finally:
         _scope.clear_scope()
     runs.finish_run(chat_id, sess["status"])
@@ -625,10 +712,33 @@ def _route_agents(task, names):
         return names
 
 
+def _maybe_ambiguous(task):
+    """Cheap pre-filter: could this question even BE ambiguous enough to warrant a
+    clarify round-trip? Skips the LLM clarify call on the common case (a specific,
+    self-contained question) and only spends it when the input contains a bare,
+    context-free identifier/number the specialists might have had to guess at.
+
+    Conservative: when unsure, returns True (run the gate) so we never lose a genuine
+    clarification — this only removes the call for clearly-unambiguous questions."""
+    import re
+    t = (task or "").strip()
+    # A bare standalone number/code (e.g. '844', 'L7') with little surrounding context
+    # is the classic ambiguous case the gate exists for.
+    bare_token = re.search(r'(?<![\w.])[A-Za-z]?\d{2,}(?![\w.%])', t)
+    if bare_token:
+        return True
+    # Very short questions carry little context -> keep the gate.
+    if len(t.split()) <= 4:
+        return True
+    return False
+
+
 def _needs_clarification(task, results):
     """LLM decides (not hardcoded) whether the specialists flagged the input as
     ambiguous such that ONE question to the user would materially change the answer.
     Returns the question, or None."""
+    if not _maybe_ambiguous(task):
+        return None                       # specific, self-contained question -> no round-trip
     findings = "\n\n".join(f"{n}: {(r or '')[:500]}" for n, r in results.items())
     try:
         r = model.complete(
@@ -681,11 +791,14 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
     prompt = context + scope + task
 
     runs.start_run(chat_id, "team")
+    deferrals = []     # other-language translations to fill in the background after the turn
     def emit(ev):
-        # Single chokepoint: pair EVERY event's text into {en, de} before it is
-        # recorded + streamed, so a language switch flips the whole transcript and
-        # trace with no re-run. No emission site needs to know about i18n.
-        ev = _localize(ev, lang)
+        # Single chokepoint: pair EVERY event's text into {en, de}. The SOURCE side is
+        # filled instantly; the OTHER side is queued in `deferrals` and translated AFTER
+        # the answer is sent (see _drain_translations) so no translation LLM call sits on
+        # the critical path. The frontend renders the source side now and patches the
+        # other side from translation_update events.
+        ev = _localize(ev, lang, deferrals)
         runs.record(chat_id, ev)
         return ev
 
@@ -781,6 +894,12 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
         yield emit({"type": "suggestions", "data": {"questions": sg}})
     except Exception:
         pass
+
+    # The answer is already on the user's screen. Now fill the deferred other-language
+    # sides in the background and stream translation_update events so a language toggle
+    # is seamless — without ever having blocked the answer on a translation call.
+    for tu in _drain_translations(chat_id, deferrals):
+        yield tu
 
 
 def _synthesize(task, results, lang="en"):

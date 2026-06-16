@@ -50,6 +50,30 @@ def record(chat_id, event):
                    {"t": _now(), "s": seq, "c": chat_id})
 
 
+def patch_translation(chat_id, eid, field, target_lang, text):
+    """Fill the deferred OTHER-language side of an already-recorded event's {en,de} pair,
+    so a reloaded transcript has the complete translation (the live UI is patched via a
+    streamed translation_update; this keeps the persisted trail consistent)."""
+    if not chat_id or not eid:
+        return
+    _init()
+    key = "questions_i18n" if field == "questions" else f"{field}_i18n"
+    with _engine("local").begin() as cx:
+        rows = cx.execute(sql("select seq,data from run_steps where chat_id=:c order by seq"),
+                          {"c": chat_id}).fetchall()
+        for seq, raw in rows:
+            try:
+                d = json.loads(raw)
+            except Exception:
+                continue
+            if d.get("eid") != eid or key not in d:
+                continue
+            d[key][target_lang] = text
+            cx.execute(sql("update run_steps set data=:d where chat_id=:c and seq=:s"),
+                       {"d": json.dumps(d), "c": chat_id, "s": seq})
+            break
+
+
 def finish_run(chat_id, status):
     if not chat_id:
         return

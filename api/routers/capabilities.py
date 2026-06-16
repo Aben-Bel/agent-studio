@@ -21,6 +21,25 @@ def capabilities():
     return orchestrator.capabilities()
 
 
+@router.post("/translate")
+def translate(req: dict):
+    """On-demand translation for the language toggle. The orchestrator no longer eagerly
+    translates every event to the OTHER language (that per-event LLM call was the dominant
+    per-turn latency); the frontend instead asks here only for the texts it needs, only
+    when the user actually switches language. Body: {texts: [...], lang: 'de'|'en'}.
+    Returns {translations: [...]} aligned to `texts`; any failure falls back to the source."""
+    from core import model
+    texts = (req or {}).get("texts") or []
+    lang = (req or {}).get("lang") or "en"
+    out = []
+    for tx in texts:
+        try:
+            out.append(model.translate(tx, lang))
+        except Exception:
+            out.append(tx)
+    return {"translations": out}
+
+
 @router.get("/suggest")
 def suggest(lang: str = "en"):
     """A few data-aware starter questions so the user is not staring at a blank box.

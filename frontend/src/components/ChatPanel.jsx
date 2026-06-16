@@ -276,7 +276,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
 
     // answer/paused hold the {en, de} pair when the backend supplied one, so a
     // later language toggle re-renders them from storage with no re-run.
-    let answer = null, answerI18n = null, paused = null, pausedI18n = null, errored = null, references = [];
+    let answer = null, answerI18n = null, paused = null, pausedI18n = null, errored = null, references = [], answerShown = false;
     try {
       await runChat(
         { agent: "team", message, chat_id: chatId, agents,
@@ -297,7 +297,18 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           else if (ev.type === "thinking") setStatus(who + "reasoning...");
           else if (ev.type === "tool_call") setStatus(who + "using " + d.name);
           else if (ev.type === "tool_result") setStatus(who + d.name + " done");
-          if (ev.type === "final" && !d.depth) { answer = d.message; answerI18n = d.message_i18n; references = d.references || []; }
+          if (ev.type === "final" && !d.depth) {
+            // Render the answer IMMEDIATELY (do not wait for the stream to close — the
+            // stream stays open while background translations stream in as
+            // translation_update events). Mark it answered so post-loop doesn't double-add.
+            answer = d.message; answerI18n = d.message_i18n; references = d.references || []; answerShown = true;
+            setMessages((m) => [...m, { role: "assistant", text: d.message, i18n: d.message_i18n, references: d.references || [], eid: d.eid }]);
+          }
+          // Background translation arrived for an already-shown event: patch its other-language side in place.
+          if (ev.type === "translation_update") {
+            setMessages((m) => m.map((x) => x.eid && x.eid === d.eid && x.i18n
+              ? { ...x, i18n: { ...x.i18n, [d.lang]: d.text } } : x));
+          }
           if (ev.type === "needs_human") { paused = d.question; pausedI18n = d.question_i18n; }
           if (ev.type === "error" && !d.agent_scope) errored = d.message;
           if (ev.type === "suggestions") { setSuggestions(d.questions_i18n || d.questions || []); setSuggLoading(false); }
@@ -312,7 +323,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     }
     abortRef.current = null; setStatus("");
     if (paused) { setMessages((m) => [...m, { role: "assistant", text: paused, i18n: pausedI18n, pending: true }]); setAwaiting(pausedI18n || paused); }
-    else if (answer) setMessages((m) => [...m, { role: "assistant", text: answer, i18n: answerI18n, references }]);
+    else if (answer) { /* already rendered live on the `final` event; nothing to add here */ }
     else if (errored) { setError(errored); setMessages((m) => [...m, { role: "assistant", text: "Error: " + errored, error: true }]); }
     else setMessages((m) => [...m, { role: "assistant", text: "_(no answer was produced)_" }]);
     setBusy(false); setSuggLoading(false);

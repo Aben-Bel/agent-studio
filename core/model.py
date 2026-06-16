@@ -1,8 +1,26 @@
 import itertools
+import threading
 from .config import cfg
 from .util import retry, log
 
 _ids = itertools.count(1)
+
+# One Bedrock client, reused across ALL calls. Creating a boto3 client per call meant
+# a fresh TLS + SigV4 auth handshake every time (dozens per team turn); a cached client
+# keeps the connection pool warm. boto3 clients are thread-safe for calls, so the
+# parallel team agents can share it; we only guard the lazy CREATION with a lock.
+_client = None
+_client_lock = threading.Lock()
+
+
+def _bedrock_client():
+    global _client
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                import boto3
+                _client = boto3.client("bedrock-runtime", region_name=cfg.region)
+    return _client
 
 
 class Resp:
@@ -12,13 +30,21 @@ class Resp:
         self.tool_calls = tool_calls or []
 
 
-def complete(messages, functions=None, system="", max_tokens=1100):
+def complete(messages, functions=None, system="", max_tokens=1100, on_delta=None):
     """messages: neutral history. functions: [{name, description, schema}].
     Returns Resp. Mock mode emulates a tool-using model so the whole demo
     runs offline; flip MOCK_LLM=0 with AWS creds to use Bedrock. `max_tokens`
-    can be raised for longer outputs (e.g. authoring a full report)."""
+    can be raised for longer outputs (e.g. authoring a full report).
+
+    `on_delta(chunk)` — optional. When given (and not in mock mode), the Bedrock call
+    uses converse_stream and invokes it with each text chunk as it arrives, for live
+    token streaming. The return value is identical to the non-streaming path, so a
+    caller that ignores deltas is unaffected. Streaming is only used for answer text;
+    if the model emits a tool call, that is returned as usual (no deltas)."""
     if cfg.mock_llm:
         return _mock(messages, functions or [], system)
+    if on_delta is not None:
+        return _bedrock_stream(messages, functions or [], system, max_tokens, on_delta)
     return _bedrock(messages, functions or [], system, max_tokens)
 
 
@@ -177,8 +203,7 @@ def _call(name, args):
 # ---------------- real Bedrock converse (verify on AWS) ----------------
 @retry()
 def _bedrock(messages, functions, system, max_tokens=1100):
-    import boto3
-    client = boto3.client("bedrock-runtime", region_name=cfg.region)
+    client = _bedrock_client()
     bm = _to_bedrock_messages(messages)
     kwargs = {"modelId": cfg.model_id, "messages": bm,
               "inferenceConfig": {"maxTokens": max_tokens, "temperature": 0.3}}
