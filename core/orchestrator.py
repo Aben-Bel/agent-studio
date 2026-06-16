@@ -1026,13 +1026,15 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
     # kind, plus an explicit not_analyzed row for any target named in the question that
     # produced no verdict (and a budget note when an agent hit max_steps). Rendered
     # ABOVE the synthesized prose so a finding / genuine null / not-analyzed never blur.
-    rollup = _rollup_table(task, typed_records, bool(stopped_short))
+    rollup, resolved_verdicts = _rollup_table(task, typed_records, bool(stopped_short))
 
     # One agent selected -> return its findings directly; 2+ -> synthesize across them.
     if len(names) == 1:
         synthesis = list(results.values())[0] or "(no findings)"
     else:
-        synthesis = _synthesize(task, results, lang)
+        # Bind the prose to the authoritative per-target verdicts so it RENDERS them and
+        # never re-judges (e.g. relabelling a genuine null as 'not analyzed').
+        synthesis = _synthesize(task, results, lang, resolved_verdicts)
     if rollup:
         synthesis = rollup + "\n\n" + synthesis
     history.append({"task": task, "synthesis": synthesis})
@@ -1145,7 +1147,7 @@ def _rollup_table(task, typed_records, any_stopped_short):
     Schema-agnostic, decomposition-free (no Option B), no question parsing: the target
     set is exactly the scope values the records engaged."""
     if not typed_records and not any_stopped_short:
-        return ""
+        return "", []
 
     from collections import defaultdict
     # The multi-target axis = the scope column with the most distinct values ENGAGED.
@@ -1224,36 +1226,63 @@ def _rollup_table(task, typed_records, any_stopped_short):
     if any_stopped_short:
         lines.append("- (an analyst hit its step budget; requested targets not listed above "
                      "were not reached — re-ask them individually)")
-    return "\n".join(lines)
+    # Return BOTH the rendered text and the resolved (label, kind, stat) verdicts so the
+    # prose synthesis can be BOUND to these authoritative kinds instead of re-deriving
+    # them from raw agent text (which led prose to relabel a genuine null as not-analyzed).
+    return "\n".join(lines), resolved
 
 
-def _synthesize(task, results, lang="en"):
+def _synthesize(task, results, lang="en", verdicts=None):
     """One brief conclusion from the parallel specialists. The full per-specialist
     detail is in the trace, so we do NOT dump it here (that was the verbosity).
-    `lang` makes the conclusion come out in the user's language natively (the
-    other language is translated downstream for the {en, de} pair)."""
+    `lang` makes the conclusion come out in the user's language natively.
+
+    `verdicts` is the AUTHORITATIVE per-target (label, kind, stat) list from the
+    structured roll-up. When present, the prose is BOUND to it: every target's kind is
+    given as fixed ground truth the LLM must render verbatim, so it can never re-judge a
+    target (e.g. relabel a tested null as 'not analyzed' from stray 'cut off' text)."""
     findings = "\n\n".join(f"{n}: {r}" for n, r in results.items())
     if cfg.mock_llm:
         return "Combined findings:\n" + "\n".join(f"- {n}: {(r or '')[:140]}" for n, r in results.items())
     answer_lang = "" if lang == "en" else f" Write your entire answer in {model.LANG_NAME.get(lang, 'English')}."
+
+    verdict_block = ""
+    if verdicts:
+        vlines = "\n".join(f"- {label}: {_KIND_LABEL.get(kind, kind)}"
+                           + (f" ({stat})" if (stat or '').strip() else "")
+                           for label, kind, stat in verdicts)
+        verdict_block = (
+            "\n\nAUTHORITATIVE PER-TARGET VERDICTS (the structured analysis already "
+            "decided these — they are GROUND TRUTH):\n" + vlines + "\n"
+            "You MUST use each target's verdict EXACTLY as stated above. Do NOT re-judge, "
+            "re-derive, upgrade, or downgrade any target's kind — even if a specialist's "
+            "raw text says 'cut off', 'incomplete', or anything else. A target listed as a "
+            "genuine null IS a tested null; never call it 'not analyzed'. The verdicts "
+            "above override any contradicting wording in the findings below.")
     try:
         r = model.complete(
             [{"role": "user", "content":
-              f"Question: {task}\n\nSpecialist findings:\n{findings}\n\n"
-              "Answer the question in at most 5 sentences or one small table. Give the "
-              "single most likely cause only if relevant. Cite the table.column or "
-              "document behind each point. Do NOT repeat the specialists' full text and "
-              "do NOT add extra sections.\n"
-              "CRITICAL: preserve each result's KIND. A 'genuine null' (tested, no "
-              "significant association), an 'insufficient' result, and a 'not analyzed' "
-              "target are DIFFERENT — never merge them or present a not-analyzed/"
-              "insufficient target as if it were a tested null. If a target was not "
-              "analyzed, say so and suggest re-asking it on its own."}],
+              f"Question: {task}{verdict_block}\n\nSpecialist findings (supporting detail; "
+              f"the verdicts above are authoritative):\n{findings}\n\n"
+              "Answer the question in at most 5 sentences or one small table, rendering "
+              "each target's verdict faithfully. Cite the table.column behind each point. "
+              "Do NOT repeat the specialists' full text and do NOT add extra sections.\n"
+              "CRITICAL: a 'genuine null' (tested, no significant association), an "
+              "'insufficient' result, and a 'not analyzed' target are DIFFERENT kinds — "
+              "render exactly the kind given above for each target; never merge or relabel."}],
             [], _style("You are the lead RCA investigator. Be brief." + answer_lang))
         concl = (r.content or "").strip()
     except Exception:
         concl = ""
-    return concl or ("Findings:\n" + "\n".join(f"- {n}: {(r or '')[:200]}" for n, r in results.items()))
+    if concl:
+        return concl
+    # Fallback (LLM unavailable/empty): render the AUTHORITATIVE verdicts, not raw agent
+    # text — raw text may carry a contradicting 'cut off' note that the verdicts override.
+    if verdicts:
+        return "Per-target results:\n" + "\n".join(
+            f"- {label}: {_KIND_LABEL.get(kind, kind)}" + (f" — {stat}" if (stat or '').strip() else "")
+            for label, kind, stat in verdicts)
+    return "Findings:\n" + "\n".join(f"- {n}: {(r or '')[:200]}" for n, r in results.items())
 
 
 def add_context(chat_id, text):
