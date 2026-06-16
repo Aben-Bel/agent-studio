@@ -183,33 +183,54 @@ export async function addContext(chatId, text) {
   return r.json();
 }
 
+// fetch with a hard timeout so a stalled request (e.g. an S3 PUT blocked by missing
+// CORS or expired creds) FAILS FAST instead of hanging forever with no response — the
+// caller then falls back to the direct upload. Aborts after `ms`.
+async function fetchTimeout(url, opts = {}, ms = 12000) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // --- Direct-to-S3 upload (file bytes never pass through the backend) ---
 // 1) ask the backend for a presigned URL, 2) PUT the file straight to S3,
 // 3) return {key, get_url, ...} so you can hand the key back to the backend.
+// Every leg has a timeout: with expired workshop creds / no bucket CORS the S3 PUT can
+// stall silently (no console/network error), so we abort fast and let the caller fall
+// back to the direct backend upload.
 export async function uploadToS3(file) {
-  const presign = await fetch(`${BASE}/uploads/presign`, {
+  const pres = await fetchTimeout(`${BASE}/uploads/presign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename: file.name, content_type: file.type || null }),
-  }).then((r) => r.json());
+  }, 8000);
+  if (!pres.ok) throw new Error(`presign failed: ${pres.status}`);
+  const presign = await pres.json();
+  if (!presign || !presign.upload_url) throw new Error("presign returned no upload_url");
 
-  const put = await fetch(presign.upload_url, {
+  const put = await fetchTimeout(presign.upload_url, {
     method: "PUT",
     headers: file.type ? { "Content-Type": file.type } : {},
     body: file,
-  });
+  }, 15000);
   if (!put.ok) throw new Error(`S3 upload failed: ${put.status}`);
 
   return presign; // { key, upload_url, get_url, bucket }
 }
 
 // Tell the backend to pick up an uploaded object (by key or link) and ingest it.
+// Timed out so a stalled S3 fetch on the backend side can't hang the upload UI.
 export async function ingestFromS3(key) {
-  const r = await fetch(`${BASE}/ingest-s3`, {
+  const r = await fetchTimeout(`${BASE}/ingest-s3`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ key }),
-  });
+  }, 30000);
+  if (!r.ok) throw new Error(`ingest failed: ${r.status}`);
   return r.json();
 }
 
