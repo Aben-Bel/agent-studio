@@ -734,8 +734,27 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
 
       {inspectAgent && (
         <Modal title={`Agent: ${prettyName(inspectAgent.name)}`} onClose={() => setInspectAgent(null)}>
-          <p className="muted">{inspectAgent.description}</p>
-          <div className="setup-title" style={{ marginTop: 12 }}>Tools it may use ({(inspectAgent.tools || []).length})</div>
+          <p className="muted">{pick(inspectAgent.description_i18n, inspectAgent.description)}</p>
+          {(() => {
+            const A = inspectAgent;
+            const rows = [
+              ["whenToUse", pick(A.when_to_use_i18n, A.when_to_use)],
+              ["howToUse", pick(A.how_to_use_i18n, A.how_to_use)],
+              ["whatToUseFor", pick(A.what_to_use_for_i18n, A.what_to_use_for)],
+              ["whatNotToUseFor", pick(A.what_not_to_use_for_i18n, A.what_not_to_use_for)],
+            ].filter(([, v]) => (v || "").trim());
+            return rows.length > 0 && (
+              <div className="agent-guide">
+                {rows.map(([k, v]) => (
+                  <div key={k} className={"ag-row" + (k === "whatNotToUseFor" ? " ag-not" : "")}>
+                    <div className="ag-label">{t(k)}</div>
+                    <div className="ag-val">{v}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div className="setup-title" style={{ marginTop: 12 }}>{t("toolsItMayUse")} ({(inspectAgent.tools || []).length})</div>
           <div className="chips">
             {(inspectAgent.tools || []).map((t) => (
               <ToolTip key={t} name={t} cap={toolInfo[t]?.description} cannot={toolInfo[t]?.limits}>

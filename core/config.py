@@ -17,7 +17,7 @@ class Config:
     database_url: str = os.getenv("DATABASE_URL", "")
     # S3 bucket for file uploads (direct browser upload via presigned URLs).
     s3_bucket: str = os.getenv("S3_BUCKET", "")
-    max_steps: int = int(os.getenv("MAX_STEPS", "8"))
+    max_steps: int = int(os.getenv("MAX_STEPS", "25"))
     # --- Statistical-validity thresholds for the RCA tools (tools/rca/stats_core.py) ---
     # A group is flagged a candidate cause ONLY if BH-adjusted p < alpha AND |lift| >= min_lift.
     stat_alpha: float = float(os.getenv("STAT_ALPHA", "0.05"))

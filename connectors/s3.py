@@ -32,6 +32,7 @@ class S3:
 
     def __init__(self):
         self._client = None
+        self._cors_done = False
 
     @property
     def client(self):
@@ -99,6 +100,32 @@ class S3:
         os.close(fd)
         self.client.download_file(bkt, key, path)
         return path
+
+    # ---------------- bucket CORS (for browser direct upload) ----------------
+    def ensure_cors(self):
+        """Make the bucket accept browser direct uploads. A presigned PUT from the
+        browser triggers a CORS preflight; without a bucket CORS policy S3 omits
+        Access-Control-Allow-Origin and the browser blocks the PUT. Allowing any
+        origin is safe here because the presigned signature - not CORS - is the
+        actual authorization; CORS only governs which page may issue the fetch.
+        Idempotent: safe to call on every startup."""
+        rules = [{
+            "AllowedMethods": ["PUT", "GET", "HEAD"],
+            "AllowedOrigins": ["*"],
+            "AllowedHeaders": ["*"],
+            "ExposeHeaders": ["ETag"],
+            "MaxAgeSeconds": 3600,
+        }]
+        self.client.put_bucket_cors(
+            Bucket=self.bucket, CORSConfiguration={"CORSRules": rules})
+        self._cors_done = True
+        return {"bucket": self.bucket, "cors": rules}
+
+    def ensure_cors_once(self):
+        """ensure_cors() at most once per process (lazy, on first presign)."""
+        if self._cors_done:
+            return
+        self.ensure_cors()
 
     # ---------------- presigned URLs ----------------
     def presign_put(self, filename, content_type=None, expires=3600, prefix="uploads"):

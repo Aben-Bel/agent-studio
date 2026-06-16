@@ -318,7 +318,18 @@ def capabilities():
         out.update(extra)
         return out
     return {
-        "agents": [{"name": a.name, "tools": a.tools, **entry(a.description)}
+        "agents": [{"name": a.name, "tools": a.tools, **entry(a.description),
+                    # Surface the typed routing metadata so the UI can show WHEN/HOW
+                    # to use each agent and what it is/ isn't for. Paired for i18n.
+                    "when_to_use": getattr(a.routing, "when_to_use", ""),
+                    "when_to_use_i18n": _pair_static(getattr(a.routing, "when_to_use", "")),
+                    "how_to_use": getattr(a.routing, "how_to_use", ""),
+                    "how_to_use_i18n": _pair_static(getattr(a.routing, "how_to_use", "")),
+                    "what_to_use_for": getattr(a.routing, "what_to_use_for", ""),
+                    "what_to_use_for_i18n": _pair_static(getattr(a.routing, "what_to_use_for", "")),
+                    "what_not_to_use_for": getattr(a.routing, "what_not_to_use_for", ""),
+                    "what_not_to_use_for_i18n": _pair_static(getattr(a.routing, "what_not_to_use_for", "")),
+                    }
                    for a in AGENTS.all().values()],
         "tools": [{"name": t.name, "version": t.version, "owner": t.owner, "tags": t.tags,
                    "limits": getattr(t, "limits", ""),

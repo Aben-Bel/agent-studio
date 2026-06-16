@@ -40,8 +40,13 @@ def run(req: RunRequest):
 @router.post("/agents")
 def create_agent(req: CreateAgentRequest):
     """Create a custom agent from a persona. Registered live and immediately
-    routable and visible in /capabilities."""
-    register_custom_agent(req.name, req.description, req.persona, req.tools)
+    routable and visible in /capabilities. Optional routing guidance sharpens
+    routing and is shown in the agent detail."""
+    from core.declare import AgentRouting
+    routing = AgentRouting(when_to_use=req.when_to_use, how_to_use=req.how_to_use,
+                           what_to_use_for=req.what_to_use_for,
+                           what_not_to_use_for=req.what_not_to_use_for)
+    register_custom_agent(req.name, req.description, req.persona, req.tools, routing)
     return {"created": req.name}
 
 

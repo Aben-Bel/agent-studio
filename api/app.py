@@ -23,6 +23,19 @@ def create_app() -> FastAPI:
         except Exception as e:
             log.warning("DATABASE_URL could not be connected: %s", e)
 
+    # Make the uploads bucket accept browser direct (presigned) uploads. Without a
+    # bucket CORS policy the browser's preflight PUT is blocked. Best-effort: S3 may
+    # be unset or creds expired - that must NOT stop the app (the direct-POST upload
+    # fallback still works). Idempotent, so safe on every boot.
+    if cfg.s3_bucket:
+        try:
+            from connectors.s3 import s3
+            s3.ensure_cors()
+            log.info("ensured S3 CORS on bucket '%s' for browser uploads", cfg.s3_bucket)
+        except Exception as e:
+            log.warning("could not set S3 bucket CORS (browser uploads may fall back "
+                        "to direct POST): %s", e)
+
     app = FastAPI(
         title=cfg.app_title,
         description="Auto-discovered agents, tools, skills, MCP servers and pipeline "

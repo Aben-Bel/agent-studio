@@ -20,6 +20,11 @@ class CreateAgentRequest(BaseModel):
     description: str
     persona: str                    # becomes the system prompt
     tools: list[str] = []           # tool/skill names this agent may call
+    # Optional routing guidance (sharpens orchestrator routing + shown in the UI).
+    when_to_use: str = ""
+    how_to_use: str = ""
+    what_to_use_for: str = ""
+    what_not_to_use_for: str = ""
 
 
 class ConnectDbRequest(BaseModel):

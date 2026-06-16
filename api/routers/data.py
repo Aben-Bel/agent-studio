@@ -52,8 +52,23 @@ class S3Ref(BaseModel):
 def presign_upload(req: PresignRequest):
     """Hand the browser a presigned URL so it can PUT a file straight to S3
     (bytes never pass through the backend). The browser sends `key` back to
-    /ingest-s3 for the backend to pick up."""
+    /ingest-s3 for the backend to pick up. Best-effort ensures the bucket CORS
+    policy first (once per process) so the browser's preflight PUT is allowed."""
+    try:
+        s3.ensure_cors_once()
+    except Exception:
+        pass
     return s3.presign_put(req.filename, req.content_type)
+
+
+@router.post("/uploads/ensure-cors")
+def ensure_cors():
+    """Apply the uploads-bucket CORS policy now (e.g. after refreshing AWS creds
+    that were expired at startup). Idempotent."""
+    try:
+        return {"ok": True, **s3.ensure_cors()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @router.post("/ingest-s3")
