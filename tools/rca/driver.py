@@ -25,7 +25,7 @@ class DriverArgs(BaseModel):
     table: str = "wafer_defects"
     outcome_col: str = ""                  # binary 0/1 outcome; blank = infer
     params: str = ""                       # comma-separated parameters to test; blank = all numeric
-    # Restrict the test to a subset, e.g. {"column": "lot_id", "values": ["LOT_B"]}
+    # Restrict the test to a subset, e.g. {"column": <col>, "values": [<value>]}
     # or a list of such filters. Validated column+values, never raw SQL.
     scope: Optional[Any] = None
     # Optional grouping column to exclude from the parameter set + label the scope.

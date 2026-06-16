@@ -250,21 +250,46 @@ def apply_scope(df: pd.DataFrame, scope) -> tuple[pd.DataFrame, list[str], str |
 # (the search confounder_check is NOT: which single parameter is associated     #
 #  with the outcome, over a given row subset.)                                  #
 # --------------------------------------------------------------------------- #
+def _is_id_like(s: pd.Series, n_rows: int, ratio: float = 0.9) -> bool:
+    """Data-driven id/near-unique test (no hardcoded column names).
+
+    An identifier (e.g. wafer_id) is near-unique AND integer-valued — it enumerates
+    rows. A continuous process parameter is *also* high-cardinality (many distinct
+    floats) but is NOT integer-valued, so cardinality alone would wrongly drop real
+    parameters. We therefore require BOTH: near-unique (distinct/rows >= ratio, or a
+    unique key) AND all-integer values. Schema-agnostic; no column names."""
+    vals = s.dropna()
+    if len(vals) == 0:
+        return True
+    nun = vals.nunique()
+    near_unique = nun >= len(vals) or (nun / max(1, n_rows)) >= ratio
+    if not near_unique:
+        return False
+    # integer-valued? (ids are ints; continuous parameters carry a fractional part)
+    frac = (vals - np.floor(vals)).abs()
+    all_integer = bool((frac < 1e-9).all())
+    return all_integer
+
+
 def _numeric_param_cols(df: pd.DataFrame, outcome_col: str, group_col: str | None,
                         candidates=None) -> list[str]:
     """Continuous parameter columns eligible as drivers: numeric, not the outcome,
-    not the grouping column, and not (near-)binary/identifier-like. Schema-agnostic."""
-    if candidates:
-        return [c for c in candidates if c in df.columns]
+    not the grouping column, not (near-)binary/constant, and not id/near-unique.
+    Schema-agnostic. An explicit `candidates` list is honoured but still filtered for
+    id-likeness so a passed id column can't poison the family."""
+    n_rows = len(df)
+    cols = candidates if candidates else list(df.columns)
     out = []
-    for c in df.columns:
-        if c == outcome_col or c == group_col:
+    for c in cols:
+        if c not in df.columns or c == outcome_col or c == group_col:
             continue
         s = pd.to_numeric(df[c], errors="coerce")
         if not pd.api.types.is_numeric_dtype(s):
             continue
         nun = s.dropna().nunique()
         if nun < 3:                      # binary/constant -> not a continuous driver
+            continue
+        if _is_id_like(s, n_rows):       # wafer_id and friends -> not a parameter
             continue
         out.append(c)
     return out

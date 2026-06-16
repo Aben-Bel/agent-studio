@@ -24,7 +24,7 @@ class CorrelateArgs(BaseModel):
     table: str = "wafer_defects"          # a loaded SQL table
     group_col: str = ""                    # categorical column to test (e.g. process_step); blank = infer
     outcome_col: str = ""                  # binary 0/1 outcome (e.g. defect_label); blank = infer
-    # Optional row scope: {"column": "lot_id", "values": ["LOT_B"]} or a list of these.
+    # Optional row scope: {"column": <col>, "values": [<value>]} or a list of these.
     # Restricts the test to a subset (e.g. one lot) - validated column+values, never SQL.
     scope: Optional[Any] = None
 

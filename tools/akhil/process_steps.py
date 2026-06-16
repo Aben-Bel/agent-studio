@@ -19,7 +19,7 @@ class ProcessStepArgs(BaseModel):
     table: str = "wafer_defects"
     step_col: str = "process_step"        # categorical grouping column; blank to infer
     defect_col: str = "defect_label"      # binary 0/1 outcome; blank to infer
-    # Optional row scope: {"column": "lot_id", "values": ["LOT_B"]} or a list of these.
+    # Optional row scope: {"column": <col>, "values": [<value>]} or a list of these.
     scope: Optional[Any] = None
 
 

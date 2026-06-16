@@ -378,12 +378,25 @@ _TYPED_KINDS = {"finding", "no_significant_association", "insufficient_data",
                 "incompatible_data"}
 
 
+def _scope_filters(args):
+    """Normalize a tool's `scope` arg into a list of well-formed {column, values}
+    filters. Junk entries (bare strings from mocks/garbled calls, missing column)
+    are dropped, so every downstream consumer can assume dicts with a column."""
+    scope = (args or {}).get("scope")
+    if not scope:
+        return []
+    raw = scope if isinstance(scope, list) else [scope]
+    return [f for f in raw if isinstance(f, dict) and f.get("column")]
+
+
 def _typed_record(name, args, obj):
-    """Build a typed per-target record {target, kind, stat, evidence} from a stats
-    tool's structured result, or None if this result isn't a typed verdict. `target`
-    is the scope/group the verdict pertains to (the scope label, else the table) — so
-    the roll-up can show one row per analyzed target and mark unreached ones
-    not_analyzed. Schema-agnostic: reads only generic fields the stats core emits."""
+    """Build a typed per-target record {target, kind, stat, evidence, scope_filters,
+    table} from a stats tool's structured result, or None if this result isn't a typed
+    verdict. `target` is the scope/group the verdict pertains to (scope label, else the
+    table). `scope_filters` (the structured {column, values}) and `table` let the
+    roll-up derive the FULL expected target domain from the DATA and mark unreached
+    values not_analyzed. Schema-agnostic: reads only generic fields the stats core
+    emits."""
     if not isinstance(obj, dict):
         return None
     kind = obj.get("kind")
@@ -394,8 +407,56 @@ def _typed_record(name, args, obj):
     target = ", ".join(scope) if scope else (args or {}).get("table") or detail.get("table") or "all rows"
     # A compact stat headline pulled from whatever the result exposes.
     stat = (obj.get("summary") or detail.get("reason") or "").strip().splitlines()
-    return {"target": target, "kind": kind, "tool": name,
+    # For the structural null-drill guard: a GROUP scan that flagged sub-groups exposes
+    # them in detail.flagged (each a dict with 'group'); record the grouping column +
+    # the flagged sub-group VALUES so the roll-up can require a driver test for each.
+    is_group_scan = name in ("correlate_params_vs_yield", "compare_process_steps")
+    flagged_subgroups = []
+    sub_col = detail.get("group_col") or ""
+    if is_group_scan and kind == "finding":
+        flagged_subgroups = [str(f.get("group")) for f in (detail.get("flagged") or [])
+                             if isinstance(f, dict) and f.get("group") is not None]
+    return {"scope_filters": _scope_filters(args),
+            "table": (args or {}).get("table") or detail.get("table") or "",
+            "target": target, "kind": kind, "tool": name,
+            "is_group_scan": is_group_scan, "sub_col": sub_col,
+            "flagged_subgroups": flagged_subgroups,
             "stat": (stat[-1] if stat else ""), "evidence": obj.get("summary", "")}
+
+
+# Stats tools that, when SCOPED to a target, are an attempt to analyze THAT target —
+# so a scoped call here that errors / returns no verdict means the target was engaged
+# but not analyzed (must surface, never vanish). A scoped call to a non-analysis tool
+# (e.g. query_data) is not a target verdict attempt and is ignored.
+_ANALYSIS_TOOLS = {"correlate_params_vs_yield", "compare_process_steps",
+                   "parameter_bin_analysis", "driver_within_scope"}
+
+
+def _not_analyzed_record(name, args, reason):
+    """Typed `not_analyzed` record for a SCOPED analysis call that errored or returned
+    no usable verdict, so an engaged-but-unanalyzed target is shown explicitly instead
+    of disappearing. Returns None for non-scoped or non-analysis calls (no phantom
+    target rows). `not_analyzed` is the lowest-priority kind — a real verdict for the
+    same scope supersedes it in the roll-up."""
+    if name not in _ANALYSIS_TOOLS:
+        return None
+    scope_filters = _scope_filters(args)   # already drops junk entries
+    if not scope_filters:
+        return None                  # only ENGAGED (scoped) targets get a row
+    labels = []
+    for f in scope_filters:
+        c, v = f.get("column"), f.get("values")
+        v = v if isinstance(v, (list, tuple, set)) else [v]
+        labels.append(f"{c}={'|'.join(map(str, v))}")
+    # is_group_scan=False so a not_analyzed (even from a failed group-scan tool) is a
+    # HEADLINE candidate for the target, not treated as intermediate group evidence —
+    # it has no flagged sub-groups to contribute, and a real verdict still supersedes it.
+    return {"scope_filters": scope_filters,
+            "table": (args or {}).get("table") or "",
+            "target": ", ".join(labels), "kind": "not_analyzed", "tool": name,
+            "is_group_scan": False,
+            "sub_col": "", "flagged_subgroups": [],
+            "stat": "", "evidence": (reason or "")[:200]}
 
 
 def _dispatch(name, args, sink=None):
@@ -412,6 +473,12 @@ def _dispatch(name, args, sink=None):
                 rec = _typed_record(name, args, obj)
                 if rec:
                     sink.append(rec)
+                else:
+                    # Scoped analysis call that produced no typed verdict (string
+                    # error / empty result): the target was engaged but not analyzed.
+                    na = _not_analyzed_record(name, args, reason=str(obj))
+                    if na:
+                        sink.append(na)
             return str(obj)
         if name in SKILLS.all():
             fn = SKILLS.get(name).fn
@@ -420,6 +487,12 @@ def _dispatch(name, args, sink=None):
             return str(fn(**safe))
         return f"unknown function '{name}'"
     except Exception as e:
+        # A scoped analysis call that raised: still surface the engaged target as
+        # not_analyzed rather than letting it vanish.
+        if sink is not None:
+            na = _not_analyzed_record(name, args, reason=f"error: {e}")
+            if na:
+                sink.append(na)
         return f"ERROR in '{name}': {e}"
 
 
@@ -973,39 +1046,154 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
 
 _KIND_LABEL = {"finding": "finding", "no_significant_association": "genuine null",
                "insufficient_data": "insufficient", "incompatible_data": "incompatible",
-               "not_analyzed": "not analyzed"}
+               "not_analyzed": "not analyzed",
+               "incomplete": "incomplete (driver test pending)"}
+
+
+def _primary_axis_value(record, axis):
+    """The value of the primary scope axis (e.g. lot_id) for a record, or None."""
+    for f in record.get("scope_filters") or []:
+        if f.get("column") == axis:
+            vals = f.get("values")
+            vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
+            return str(vals[0]) if vals else None
+    return None
+
+
+def _subgroup_value(record, sub_col):
+    """The sub-group value (the scoped sub-group column=value) a driver record used."""
+    if not sub_col:
+        return None
+    for f in record.get("scope_filters") or []:
+        if f.get("column") == sub_col:
+            vals = f.get("values")
+            vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
+            return str(vals[0]) if vals else None
+    return None
+
+
+def _null_drill_incomplete(target_records, axis):
+    """STRUCTURAL null-drill guard (code, not prompt). For one target's records:
+    if a GROUP scan FLAGGED a sub-group but NO driver_within_scope record exists for
+    that same sub-group, the target is NOT a clean null — it is `incomplete` with a
+    driver test still pending. Returns the list of flagged-but-undrilled sub-group
+    names (empty => no gap). Schema-agnostic: uses the grouping column the scan
+    itself reported."""
+    flagged = {}          # sub_col -> set(flagged sub-group values)
+    drilled = set()       # (sub_col, value) pairs a driver record covered
+    for r in target_records:
+        if r.get("is_group_scan") and r.get("flagged_subgroups"):
+            sc = r.get("sub_col") or "?"
+            flagged.setdefault(sc, set()).update(r["flagged_subgroups"])
+        if r.get("tool") == "driver_within_scope":
+            for f in r.get("scope_filters") or []:
+                c = f.get("column")
+                if not c or c == axis:
+                    continue
+                vals = f.get("values")
+                vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
+                for v in vals:
+                    drilled.add((c, str(v)))
+    undrilled = []
+    for sc, vals in flagged.items():
+        for v in vals:
+            if (sc, v) not in drilled:
+                undrilled.append(f"{sc}={v}")
+    return undrilled
 
 
 def _rollup_table(task, typed_records, any_stopped_short):
-    """Render the typed per-target verdicts as a compact table — one row per
-    (target, the strongest verdict for it). Adds an explicit `not_analyzed` note
-    when an agent ran out of budget, so an unreached target is never silently
-    presented as a tested null. Returns '' when there is nothing typed to show.
+    """Render the typed per-target verdicts as a compact table — ONE row per target
+    the run actually ENGAGED (scoped a tool to), with its verdict. An engaged target
+    that produced no usable verdict is shown `not_analyzed`. Data values the run never
+    engaged get NO row (we do not enumerate the datastore — that produced false
+    not_analyzed rows on single-target questions). The INCOMPLETE banner fires ONLY on
+    a real signal: an `incomplete` target (flagged-but-undrilled), an engaged
+    `not_analyzed` target, or a real truncation. Returns '' when there's nothing to
+    report.
 
-    Schema-agnostic and decomposition-free (no Option B): targets are taken from
-    the verdicts the tools actually produced; we do not parse target names from the
-    question. The honest gap we CAN assert is budget exhaustion."""
-    if not typed_records:
-        if any_stopped_short:
-            return ("Per-target results: an analyst stopped after its step budget — "
-                    "some targets are **not analyzed** (re-ask them individually).")
+    Schema-agnostic, decomposition-free (no Option B), no question parsing: the target
+    set is exactly the scope values the records engaged."""
+    if not typed_records and not any_stopped_short:
         return ""
-    # Strongest verdict per target: finding > null > insufficient > incompatible.
-    rank = {"finding": 3, "no_significant_association": 2,
-            "insufficient_data": 1, "incompatible_data": 0}
-    best = {}
+
+    from collections import defaultdict
+    # The multi-target axis = the scope column with the most distinct values ENGAGED.
+    cv = defaultdict(set)
     for r in typed_records:
-        t = r["target"]
-        if t not in best or rank.get(r["kind"], -1) > rank.get(best[t]["kind"], -1):
-            best[t] = r
-    lines = ["Per-target results (kind = finding / genuine null / insufficient / not analyzed):"]
-    for t, r in best.items():
-        label = _KIND_LABEL.get(r["kind"], r["kind"])
-        stat = (r.get("stat") or "").strip()
-        lines.append(f"- {t}: **{label}**" + (f" — {stat}" if stat else ""))
+        for f in r.get("scope_filters") or []:
+            if f.get("column"):
+                vals = f.get("values")
+                vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
+                cv[f["column"]].update(map(str, vals))
+    axis = max(cv, key=lambda c: len(cv[c])) if cv else None
+
+    # Group records by engaged axis value (the scoped column=value). A record with no
+    # axis filter (whole-table scan) groups under None and never becomes a target row of
+    # its own unless it is the only thing there.
+    # `not_analyzed` is the LOWEST priority: any real verdict for the same engaged
+    # scope supersedes it (error-then-success shows one row, the success).
+    rank = {"finding": 4, "incomplete": 3, "no_significant_association": 2,
+            "insufficient_data": 1, "incompatible_data": 0, "not_analyzed": -1}
+    by_axis = defaultdict(list)
+    for r in typed_records:
+        av = _primary_axis_value(r, axis) if axis else None
+        by_axis[av].append(r)
+
+    resolved = []     # ordered list of (label, kind, stat)
+    for av, recs in by_axis.items():
+        # The HEADLINE verdict comes from driver / within-scope records (the actual
+        # parameter-level answer). A bare GROUP scan flags a sub-group (a step) but is
+        # only intermediate evidence — it is not the target's headline.
+        headline_recs = [r for r in recs if not r.get("is_group_scan")]
+        if av is not None:
+            label = f"{axis}={av}"
+        elif headline_recs or recs:
+            label = (headline_recs or recs)[0].get("target") or "all rows"
+        else:
+            continue
+        if headline_recs:
+            best = max(headline_recs, key=lambda r: rank.get(r["kind"], -1))
+            kind, stat = best["kind"], (best.get("stat") or "")
+        else:
+            gs = max(recs, key=lambda r: rank.get(r["kind"], -1))
+            if gs.get("flagged_subgroups"):
+                kind, stat = "incomplete", ""        # step flagged, never drilled
+            else:
+                kind, stat = gs["kind"], (gs.get("stat") or "")
+        # STRUCTURAL null-drill guard: a target may not be a clean null/insufficient
+        # while a flagged sub-group was never drilled. Override to `incomplete`.
+        if kind in ("no_significant_association", "insufficient_data", "incomplete"):
+            undrilled = _null_drill_incomplete(recs, axis)
+            if undrilled:
+                kind = "incomplete"
+                stat = ("flagged but not drilled: " + ", ".join(undrilled)
+                        + " — run the driver test scoped to this sub-group before "
+                        "concluding null")
+        resolved.append((label, kind, stat))
+
+    # Banner fires ONLY on a real incompleteness signal — never merely because the
+    # datastore has other values. (a) any engaged target incomplete/not_analyzed,
+    # (b) a real truncation.
+    any_incomplete = any(k in ("incomplete", "not_analyzed") for _, k, _ in resolved)
+    show_banner = any_incomplete or any_stopped_short
+
+    lines = []
+    if show_banner:
+        lines.append("> **⚠ INCOMPLETE — not all requested targets were fully analyzed.** "
+                     "*incomplete* rows have a flagged sub-group whose driver test is still "
+                     "pending; *not analyzed* targets were not tested. Neither is a null — "
+                     "re-ask those targets to finish them.")
+        lines.append("")
+    lines.append("Per-target results (kind = finding / genuine null / insufficient / "
+                 "incomplete / not analyzed):")
+    for label, kind, stat in resolved:
+        klabel = _KIND_LABEL.get(kind, kind)
+        stat = (stat or "").strip()
+        lines.append(f"- {label}: **{klabel}**" + (f" — {stat}" if stat else ""))
     if any_stopped_short:
-        lines.append("- (an analyst hit its step budget; any target not listed above is "
-                     "**not analyzed**, not a null — re-ask it individually)")
+        lines.append("- (an analyst hit its step budget; requested targets not listed above "
+                     "were not reached — re-ask them individually)")
     return "\n".join(lines)
 
 

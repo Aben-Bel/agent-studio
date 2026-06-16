@@ -16,7 +16,7 @@ class ParamBinArgs(BaseModel):
     parameter: str = "temperature_c"
     defect_col: str = "defect_label"
     bins: int = 5
-    # Optional row scope: {"column": "lot_id", "values": ["LOT_B"]} or a list of these.
+    # Optional row scope: {"column": <col>, "values": [<value>]} or a list of these.
     scope: Optional[Any] = None
 
 
