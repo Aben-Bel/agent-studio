@@ -49,6 +49,14 @@ def add_document(text, source):
         cx.execute(sql("insert into doc_chunks(source,chunk,vec) values (:s,:c,:v)"), rows)
 
 
+def delete_document(source):
+    """Remove an uploaded document (all its chunks) from the RAG store."""
+    _init()
+    with _engine("local").begin() as cx:
+        res = cx.execute(sql("delete from doc_chunks where source=:s"), {"s": source})
+    return {"deleted": True, "source": source, "chunks": getattr(res, "rowcount", 0)}
+
+
 def search(query, k=3):
     """Semantic search over uploaded doc chunks, restricted to in-scope documents:
     a deselected document contributes no chunks, so RAG tools cannot surface it."""

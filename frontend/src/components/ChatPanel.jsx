@@ -8,7 +8,7 @@ import ToolTip from "./ToolTip.jsx";
 import FriendlyResult from "./FriendlyResult.jsx";
 import { useI18n } from "../i18n.jsx";
 import { prettyName } from "../format.js";
-import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport } from "../api.js";
+import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport, deleteSource, deleteDocument, forgetSource } from "../api.js";
 
 const Md = ({ children }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ""}</ReactMarkdown></div>
@@ -228,20 +228,51 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   }
   async function addFiles(e) {
     const files = Array.from(e.target.files); if (!files.length) return;
-    setUploads(files.map((f) => ({ name: f.name, status: "processing", detail: "uploading and processing..." })));
+    // Show one queued row per file inside the sources box.
+    setUploads(files.map((f) => ({ name: f.name, status: "queued", detail: "queued…" })));
     try {
-      const r = await uploadFiles(files);
+      // Uploads run one at a time (S3-first, direct-POST fallback). The first file
+      // shows 'processing'; as each finishes we refresh the source list so its real
+      // row appears and its upload row drops away - one box, loads then settles.
+      const r = await uploadFiles(files, (name, status) => {
+        if (status === "processing") {
+          setUploads((us) => us.map((u) => u.name === name
+            ? { ...u, status: "processing", detail: "uploading & processing…" } : u));
+        } else if (status === "done") {
+          loadSources();
+        }
+      });
       const byName = {}; (r.results || []).forEach((x) => { byName[x.name] = x; });
-      const results = files.map((f) => ({ name: f.name, ...describeResult(byName[f.name]) }));
-      setUploads(results);
+      // Keep ONLY the failures visible (as error rows); successes already show as
+      // real source rows below, so drop their upload rows.
+      const failed = files
+        .map((f) => ({ name: f.name, ...describeResult(byName[f.name]) }))
+        .filter((x) => x.status === "error");
+      setUploads(failed);
       await loadSources();
-      // The file now appears in the list below; clear the transient feedback
-      // (keep it only if something errored so the user can see it).
-      if (results.every((x) => x.status === "done")) setTimeout(() => setUploads([]), 3500);
     } catch (err) {
       setUploads(files.map((f) => ({ name: f.name, status: "error", detail: String(err) })));
     }
     e.target.value = "";
+  }
+  // Remove a data source: the bundled "local" store holds uploaded tables (drop
+  // the table); any other source is a connected external DB (forget the whole URL
+  // connection). Both confirmed first.
+  async function removeSource(s) {
+    if (s.name === "local") {
+      const table = (s.tables || [])[0] || s.name;
+      if (!window.confirm(`Delete uploaded table "${table}"?`)) return;
+      await deleteSource(s.name, table).catch(() => {});
+    } else {
+      if (!window.confirm(`Forget connected database "${s.name}"? The URL connection is removed.`)) return;
+      await forgetSource(s.name).catch(() => {});
+    }
+    await loadSources();
+  }
+  async function removeDoc(d) {
+    if (!window.confirm(`Delete document "${d.source}"?`)) return;
+    await deleteDocument(d.source).catch(() => {});
+    await loadSources();
   }
   async function addDb() {
     if (!dbUrl.trim()) return;
@@ -253,7 +284,8 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
 
   async function openInspect(s) {
     setInspect(s);
-    if (s.tables?.length) loadPreview(s.name, s.tables[0]); else setPreview(null);
+    const tbl = s.focusTable || (s.tables || [])[0];
+    if (tbl) loadPreview(s.name, tbl); else setPreview(null);
   }
   async function loadPreview(source, table) {
     setPreview({ table, loading: true });
@@ -435,37 +467,60 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             </div>
             {adding && (
               <div className="addsrc">
-                <label className="filebtn">{t("uploadFile")}<input type="file" multiple accept=".csv,.pdf,.txt,.md" onChange={addFiles} /></label>
+                <label className="filebtn">{t("uploadFile")}<input type="file" multiple accept=".csv,.json,.pdf,.txt,.md" onChange={addFiles} /></label>
                 <div className="db-mini">
                   <input placeholder="postgresql://..." value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addDb()} />
                   <button onClick={addDb}>DB</button>
                 </div>
               </div>
             )}
-            {uploads.length > 0 && (
-              <div className="uploads">
-                {uploads.map((u, i) => (
-                  <div key={i} className={"uprow " + u.status}>
-                    {u.status === "processing" && <span className="spin" />}
-                    <span className="upname" title={u.name}>{u.name}</span>
-                    <span className="updetail">{u.detail}</span>
-                    {u.status !== "processing" && (
-                      <button className="updismiss" title="dismiss"
-                        onClick={() => setUploads((us) => us.filter((_, j) => j !== i))}>x</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {sources.length === 0 && docs.length === 0 && <div className="muted small">none</div>}
             <div className="setup-list">
-              {sources.map((s) => (
-                <div key={s.name} className="srcrow">
-                  <input type="checkbox" checked={sourceOn(s.name)} onChange={() => toggleSource(s.name)} />
-                  <button className="srclink" onClick={() => openInspect(s)} title="inspect this source">
-                    {s.name} <span className="muted small">{(s.tables || []).length}t</span>
-                  </button>
+              {/* In-progress / errored uploads live INSIDE the same box as the
+                  sources, at the top, so mass upload reuses ONE list (loading rows
+                  that settle into normal source rows) instead of a second floating
+                  block that overlaps. A 'done' upload is dropped here because the
+                  real source row appears below via loadSources(). */}
+              {uploads.filter((u) => u.status !== "done").map((u, i) => (
+                <div key={"up:" + i} className={"srcrow uprow " + u.status}>
+                  {u.status === "error"
+                    ? <span className="upx" aria-hidden>!</span>
+                    : <span className="spin" />}
+                  <span className="srclink upname" title={u.name}>{u.name}</span>
+                  <span className="updetail" title={u.detail}>{u.detail}</span>
+                  {u.status === "error" && (
+                    <button className="srcdel" title="dismiss"
+                      onClick={() => setUploads((us) => us.filter((x) => x.name !== u.name))}>×</button>
+                  )}
                 </div>
+              ))}
+              {uploads.length === 0
+                && sources.filter((s) => s.name !== "local" || (s.tables || []).length).length === 0
+                && docs.length === 0 && <div className="muted small">none</div>}
+              {sources.map((s) => (
+                s.name === "local"
+                  // The 'local' store is INTERNAL - never show it as a source. Show
+                  // each uploaded table it holds as its own row instead.
+                  ? (s.tables || []).map((tb) => (
+                      <div key={"local:" + tb} className="srcrow">
+                        <input type="checkbox" checked={sourceOn(s.name)} onChange={() => toggleSource(s.name)} />
+                        <button className="srclink" onClick={() => openInspect({ ...s, focusTable: tb })} title="inspect this table">
+                          <span className="docicon">tbl</span> {tb}
+                        </button>
+                        <button className="srcdel" title="delete this table"
+                          onClick={() => removeSource({ name: "local", tables: [tb] })}>×</button>
+                      </div>
+                    ))
+                  // A connected external database: one row, forgettable.
+                  : (
+                    <div key={s.name} className="srcrow">
+                      <input type="checkbox" checked={sourceOn(s.name)} onChange={() => toggleSource(s.name)} />
+                      <button className="srclink" onClick={() => openInspect(s)} title="inspect this database">
+                        <span className="docicon">db</span> {s.name} <span className="muted small">{(s.tables || []).length}t</span>
+                      </button>
+                      <button className="srcdel" title="forget this database connection"
+                        onClick={() => removeSource(s)}>×</button>
+                    </div>
+                  )
               ))}
               {docs.map((d) => (
                 <div key={d.source} className="srcrow">
@@ -473,6 +528,8 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                   <button className="srclink" onClick={() => openDoc(d)} title="view this document">
                     <span className="docicon">doc</span> {d.source} <span className="muted small">{d.chars}c</span>
                   </button>
+                  <button className="srcdel" title="delete this document"
+                    onClick={() => removeDoc(d)}>×</button>
                 </div>
               ))}
             </div>

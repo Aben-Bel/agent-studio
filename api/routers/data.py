@@ -74,6 +74,26 @@ def ingest_s3(ref: S3Ref):
         os.unlink(path)
 
 
+@router.delete("/sources/{source}")
+def forget_source(source: str):
+    """Forget a connected EXTERNAL database (drop its registration + close its
+    pool). The bundled 'local' upload store cannot be removed this way."""
+    return datastore.forget_source(source)
+
+
+@router.delete("/sources/{source}/{table}")
+def delete_table(source: str, table: str):
+    """Remove an uploaded table from a source (the local upload store). External
+    connected DBs are read-only here and are not dropped."""
+    return datastore.drop_table(table, source=source)
+
+
+@router.delete("/documents/{source}")
+def delete_document(source: str):
+    """Remove an uploaded document (and all its chunks) from the RAG store."""
+    return memory.delete_document(source)
+
+
 @router.post("/connect-db")
 def connect_db(req: ConnectDbRequest):
     """Connect an external database by URL (e.g. a Postgres process-parameter DB).

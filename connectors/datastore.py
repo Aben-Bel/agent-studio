@@ -150,6 +150,75 @@ def load_csv(path, table=None, source="local"):
     return {"table": table, "rows": len(data), "source": source}
 
 
+def load_records(records, table=None, source="local"):
+    """Load a list of flat dicts (e.g. parsed JSON array) into its own table.
+    The union of all keys becomes the columns; missing values default to "".
+    Mirrors load_csv so JSON tabular data is queryable the same way."""
+    global _LAST_UPLOAD
+    table = _safe_name(table or "dataset", "dataset")
+    records = [r for r in (records or []) if isinstance(r, dict)]
+    if not records:
+        return {"table": table, "rows": 0, "source": source}
+
+    # Stable column order: first-seen key order across all records.
+    header, seen = [], set()
+    for r in records:
+        for k in r.keys():
+            sk = _safe_name(str(k), f"col{len(header)}")
+            if sk not in seen:
+                seen.add(sk)
+                header.append((k, sk))   # (original key, safe column)
+
+    eng = _engine(source)
+    md = MetaData()
+    tbl = Table(table, md, *[Column(sk, String) for _, sk in header])
+    def cell(v):
+        if v is None:
+            return ""
+        return v if isinstance(v, str) else str(v)
+    data = [{sk: cell(r.get(orig, "")) for orig, sk in header} for r in records]
+    with eng.begin() as cx:
+        tbl.drop(cx, checkfirst=True)
+        tbl.create(cx)
+        if data:
+            cx.execute(tbl.insert(), data)
+    _LAST_UPLOAD = (source, table)
+    return {"table": table, "rows": len(data), "source": source}
+
+
+def forget_source(name):
+    """Forget a connected EXTERNAL database (drop its registration + close the
+    connection pool). The bundled 'local' upload store cannot be forgotten - it
+    holds uploaded CSV/JSON tables and the platform's own data."""
+    if name == "local":
+        return {"forgotten": False, "error": "the local store cannot be removed"}
+    eng = _ENGINES.pop(name, None)
+    if eng is None:
+        return {"forgotten": False, "error": f"no connected source '{name}'"}
+    try:
+        eng.dispose()
+    except Exception:
+        pass
+    return {"forgotten": True, "name": name}
+
+
+def drop_table(table, source="local"):
+    """Delete an uploaded table from a source. Read-only sources (external DBs)
+    are not touched; only the local upload store is mutated here."""
+    safe = _safe_name(table, "")
+    if not safe:
+        return {"dropped": False, "error": "invalid table name"}
+    eng = _engine(source)
+    md = MetaData()
+    tbl = Table(safe, md)
+    try:
+        with eng.begin() as cx:
+            tbl.drop(cx, checkfirst=True)
+        return {"dropped": True, "table": safe, "source": source}
+    except Exception as e:
+        return {"dropped": False, "error": str(e)}
+
+
 def get_uploaded_file(name=None):
     """Return an uploaded CSV as a file-like object pandas can read (or None).
     Uploaded CSVs are ingested into their own SQL table, so we serialise that table

@@ -5,11 +5,59 @@ export async function getCapabilities() {
   return r.json();
 }
 
-// Upload one or many files in a single request. Returns { results: [...] }.
-export async function uploadFiles(files) {
+// Upload files ONE AT A TIME. Primary path: presign -> PUT straight to S3 ->
+// ingest by key, so bytes bypass nginx/the backend entirely (no request-size
+// limit). If presign/PUT fails (e.g. expired workshop creds, no bucket), fall
+// back to a direct POST of just that one file. Per-file so one bad/oversized
+// file can't fail the whole batch. `onProgress(name, status)` is optional.
+// Returns { results: [...] } in the same shape as the old single-request call.
+export async function uploadFiles(files, onProgress) {
+  const results = [];
+  for (const f of Array.from(files)) {
+    if (onProgress) onProgress(f.name, "processing");
+    let res;
+    try {
+      res = await uploadAndIngest(f);          // S3 path
+      if (res && res.kind === "error") throw new Error(res.reason || "ingest failed");
+    } catch (e) {
+      try {
+        res = await uploadOneDirect(f);        // fallback: direct POST of this file
+      } catch (e2) {
+        res = { name: f.name, kind: "error", reason: String(e2.message || e2) };
+      }
+    }
+    results.push({ name: f.name, ...(res || {}) });
+    if (onProgress) onProgress(f.name, "done");
+  }
+  return { results };
+}
+
+// Direct POST of a SINGLE file to the backend (fallback when S3 is unavailable).
+async function uploadOneDirect(file) {
   const fd = new FormData();
-  for (const f of files) fd.append("files", f);
+  fd.append("files", file);
   const r = await fetch(`${BASE}/upload`, { method: "POST", body: fd });
+  if (!r.ok) throw new Error(`upload failed (${r.status})`);
+  const data = await r.json();
+  return (data.results && data.results[0]) || { name: file.name, kind: "error", reason: "no result" };
+}
+
+// Delete an uploaded SQL table (a CSV/JSON dataset) from a source.
+export async function deleteSource(source, table) {
+  const r = await fetch(`${BASE}/sources/${encodeURIComponent(source)}/${encodeURIComponent(table)}`,
+    { method: "DELETE" });
+  return r.json();
+}
+
+// Forget a connected EXTERNAL database (the postgresql:// URL connection).
+export async function forgetSource(source) {
+  const r = await fetch(`${BASE}/sources/${encodeURIComponent(source)}`, { method: "DELETE" });
+  return r.json();
+}
+
+// Delete an uploaded document (PDF/MD/TXT) from the RAG store.
+export async function deleteDocument(source) {
+  const r = await fetch(`${BASE}/documents/${encodeURIComponent(source)}`, { method: "DELETE" });
   return r.json();
 }
 
