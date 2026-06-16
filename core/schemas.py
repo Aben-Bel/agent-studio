@@ -43,6 +43,7 @@ class ExportRequest(BaseModel):
     chat_id: str                    # which investigation to turn into an artifact
     format: str                     # exporter name, e.g. "report_md" / "presentation_pdf"
     title: Optional[str] = None     # optional report title override
+    lang: str = "en"                # language to author the document in ("en"/"de")
 
 
 class Capabilities(BaseModel):

@@ -22,6 +22,14 @@ from core.declare import agent
         "ask_human",
 
     ],
+    when_to_use="a defect symptom/pattern is already established and you need the failure "
+                "MECHANISM (why) from FMEA, manuals, or historical cases",
+    how_to_use="give it the symptom/parameter/step; it quotes the FMEA/manual passage or case "
+               "ID, and reports a knowledge-base gap rather than speculating",
+    what_to_use_for="symptom→mechanism mapping, historical-case lookup, citing known root causes "
+                    "from the uploaded knowledge base",
+    what_not_to_use_for="explains mechanism from TEXT knowledge — does NOT compute statistics or "
+                        "test associations; will not invent a mechanism absent from the knowledge base",
 )
 def failure_analysis_engineer(ctx):
     return (

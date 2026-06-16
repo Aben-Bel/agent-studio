@@ -105,18 +105,20 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
 
   // ---- Output generation (Download). A separate request from the chat: the user
   // can Stop it or Retry it and the conversation is never affected. ----
-  async function doExport(fmt) {
+  async function doExport(fmt, langOverride) {
+    const useLang = langOverride || lang;
     setExportOpen(false);
     if (!messages.length) { setExporting({ status: "error", error: t("nothingToExport") }); return; }
     const ac = new AbortController(); exportAbort.current = ac;
-    setExporting({ format: fmt.name, label: fmt.label, status: "preparing" });
+    const tag = useLang.toUpperCase();
+    setExporting({ format: fmt.name, label: `${fmt.label} (${tag})`, status: "preparing", lang: useLang });
     try {
-      const { filename } = await exportReport(chatId, fmt.name, ac.signal);
-      setExporting({ format: fmt.name, label: fmt.label, status: "done", filename });
+      const { filename } = await exportReport(chatId, fmt.name, ac.signal, undefined, useLang);
+      setExporting({ format: fmt.name, label: `${fmt.label} (${tag})`, status: "done", filename });
       setTimeout(() => setExporting((e) => (e && e.status === "done" ? null : e)), 6000);
     } catch (e) {
       if (ac.signal.aborted) { setExporting(null); return; }
-      setExporting({ format: fmt.name, label: fmt.label, status: "error", error: String(e.message || e) });
+      setExporting({ format: fmt.name, label: `${fmt.label} (${tag})`, status: "error", error: String(e.message || e), lang: useLang });
     } finally {
       exportAbort.current = null;
     }
@@ -124,7 +126,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const stopExport = () => exportAbort.current && exportAbort.current.abort();
   const retryExport = () => {
     const f = exportFormats.find((x) => x.name === exporting?.format);
-    if (f) doExport(f);
+    if (f) doExport(f, exporting?.lang);
   };
 
   // The persisted audit trail is the SOURCE OF TRUTH for the trace. We split its
@@ -332,7 +334,11 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
-        <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? t("hideSetup") : t("setup")}</button>
+        <button className={"panel-toggle" + (setupOpen ? " on" : "")} aria-pressed={setupOpen}
+          onClick={() => setSetupOpen((v) => !v)}>
+          <span className="pt-icon">{setupOpen ? "◧" : "▣"}</span>
+          {setupOpen ? t("hideSetup") : t("setup")}
+        </button>
         <span className="muted" title={"chat " + chatId}>{t("investigate")} · {agents.length} {t("agents")}</span>
         {busy && <button className="stopbtn" onClick={stop}>{t("stop")}</button>}
         <div className="dl-wrap">
@@ -345,17 +351,31 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                 <div className="dl-head">{t("generateOutput")}</div>
                 {exportFormats.length === 0 && <div className="dl-item muted small">{t("loading")}</div>}
                 {exportFormats.map((f) => (
-                  <button key={f.name} className="dl-item" disabled={!f.available}
-                    onClick={() => doExport(f)} title={f.description}>
+                  <div key={f.name} className={"dl-row" + (f.available ? "" : " off")} title={f.description}>
                     <span className="dl-label">{f.label}</span>
-                    {!f.available && <span className="muted small">{t("needs")} {(f.needs || []).join(", ")}</span>}
-                  </button>
+                    {f.available ? (
+                      <span className="dl-langs">
+                        <button className={"dl-lang" + (lang === "en" ? " cur" : "")}
+                          onClick={() => doExport(f, "en")}>EN</button>
+                        <button className={"dl-lang" + (lang === "de" ? " cur" : "")}
+                          onClick={() => doExport(f, "de")}>DE</button>
+                      </span>
+                    ) : (
+                      <span className="muted small">{t("needs")} {(f.needs || []).join(", ")}</span>
+                    )}
+                  </div>
                 ))}
               </div>
             </>
           )}
         </div>
-        {hasTrace && <button className="mini" onClick={() => setTraceOpen((v) => !v)}>{traceOpen ? t("hideTrace") : t("trace")}</button>}
+        {hasTrace && (
+          <button className={"panel-toggle" + (traceOpen ? " on" : "")} aria-pressed={traceOpen}
+            onClick={() => setTraceOpen((v) => !v)}>
+            <span className="pt-icon">{traceOpen ? "◨" : "▤"}</span>
+            {traceOpen ? t("hideTrace") : t("trace")}
+          </button>
+        )}
       </div>
 
       <div className={"investigate-grid" + (setupOpen ? "" : " no-setup") + (traceOpen && hasTrace ? "" : " no-trace")}>

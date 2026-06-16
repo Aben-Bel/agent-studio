@@ -15,22 +15,40 @@ from .config import cfg
 # both Markdown and Beamer with no post-processing.
 _SCHEMA = '''Return ONLY valid JSON (no code fences, no prose around it):
 {
-  "title": "short, specific report title",
+  "title": "report title - a NOUN PHRASE label, max 8 words, NOT a sentence",
   "subtitle": "one-line scope (e.g. lot / process / time window)",
-  "executive_summary": "2-4 sentences: the answer and the single most likely root cause, up front",
+  "executive_summary": "2-3 sentences: the answer and the single most likely root cause, up front",
   "sections": [
     {
-      "heading": "short section heading",
-      "bullets": ["concise finding citing a real value and its source", "..."],
+      "heading": "section heading - max 5 words, a label not a sentence",
+      "bullets": ["ONE idea, max 12 words, citing a real value and its source", "..."],
       "table": {"columns": ["Col", "Col"], "rows": [["v", "v"], ["v", "v"]]}
     }
   ],
-  "recommendations": ["specific, actionable next step", "..."],
+  "recommendations": ["one actionable next step, max 12 words", "..."],
   "data_sources": ["table.column or document.pdf actually used", "..."]
 }
-Rules: 3-5 sections max. Each "table" is OPTIONAL - include it only when the data
-is tabular, otherwise omit the key. Use ONLY numbers/identifiers present in the
-verified data. Be concise and coherent. No filler, no emojis, no chat references.'''
+SLIDE-DESIGN RULES (this becomes a slide deck - one idea per slide, no text walls):
+- Title and every heading are SHORT LABELS (noun phrases), never a sentence and never
+  a question. Do NOT start a title with "To answer", "I need", "How to", etc.
+- Each bullet is ONE idea, at most ~12 words. Split a long finding into several bullets.
+  Never paste an analyst's full sentence as a single bullet.
+- 3-5 sections max, at most 5 bullets per section. Prefer a small table to a wall of text.
+- Each "table" is OPTIONAL - include it only when the data is tabular, else omit the key.
+- Use ONLY numbers/identifiers present in the verified data. No filler, no emojis,
+  no chat references, no markdown headings inside text.'''
+
+
+# Slide chrome (frame titles the template emits) per language, so a German deck is
+# German end-to-end, not English headings around German bullets.
+_LABELS = {
+    "en": {"summary": "Executive summary", "recommendations": "Recommendations",
+           "data_sources": "Data sources", "grounded": "Grounded in verified data:",
+           "subtitle": "Root-Cause Analysis"},
+    "de": {"summary": "Zusammenfassung", "recommendations": "Empfehlungen",
+           "data_sources": "Datenquellen", "grounded": "Auf verifizierten Daten basierend:",
+           "subtitle": "Ursachenanalyse"},
+}
 
 
 def _verified_data(raw):
@@ -49,11 +67,20 @@ def _verified_data(raw):
     return "\n".join(out).strip()
 
 
-def build_document(chat_id, title=None):
+def build_document(chat_id, title=None, lang="en"):
     """Return the professional document model for a chat. LLM-authored when online
-    and grounded in verified data; a deterministic structured fallback otherwise."""
+    and grounded in verified data; a deterministic structured fallback otherwise.
+    `lang` makes the deck's prose AND its frame chrome come out in that language."""
     raw = report.build_report(chat_id, title=title)
     verified = _verified_data(raw)
+    labels = _LABELS.get(lang, _LABELS["en"])
+
+    sysprompt = "You produce precise, well-structured engineering reports as strict JSON."
+    if lang != "en":
+        name = model.LANG_NAME.get(lang, "English")
+        sysprompt += (f" Write ALL human-readable text (title, headings, summary, bullets, "
+                      f"recommendations) in {name}. Keep table/column names, identifiers, "
+                      "numbers, and units exactly as in the data.")
 
     doc = None
     if not cfg.mock_llm and verified:
@@ -68,24 +95,25 @@ def build_document(chat_id, title=None):
                   "Write a concise, coherent executive document. Lead with the answer, "
                   "group findings logically, format tabular data as tables, and cite the "
                   f"source (table.column or document) for every quantitative claim.\n\n{_SCHEMA}"}],
-                [], "You produce precise, well-structured engineering reports as strict JSON.",
-                max_tokens=2200)
+                [], sysprompt, max_tokens=2200)
             doc = _parse(r.content)
         except Exception:
             doc = None
 
     if not doc:
-        doc = _fallback(raw)
+        doc = _fallback(raw, labels)
 
     # Ground the metadata regardless of source.
     doc.setdefault("title", raw["title"])
-    doc.setdefault("subtitle", "Root-Cause Analysis")
+    doc.setdefault("subtitle", labels["subtitle"])
     doc.setdefault("recommendations", [])
     if not doc.get("data_sources"):
         doc["data_sources"] = [f"{s['name']}.{tb}" for s in raw["data_sources"] for tb in s["tables"]] \
             or [d["source"] for d in raw["documents"]]
     doc["generated"] = raw["generated"]
     doc["chat_id"] = chat_id
+    doc["lang"] = lang
+    doc["labels"] = labels          # frame-title chrome the exporter renders
     doc["empty"] = not (doc.get("sections") or doc.get("executive_summary"))
     return doc
 
@@ -117,13 +145,45 @@ def _parse(text):
     return d
 
 
-def _fallback(raw):
-    """Offline / model-failure path: still a structured document, not a transcript."""
+def _heading_from(text, fallback="Findings"):
+    """A short LABEL from a question/sentence: first clause, no markdown, clamped -
+    so the fallback deck gets real headings, not a pasted sentence."""
+    import re as _re
+    s = " ".join(str(text or "").split())
+    s = _re.sub(r"\*\*(.+?)\*\*", r"\1", s).replace("**", "").replace("`", "")
+    s = _re.split(r"[.?!:]", s, maxsplit=1)[0].strip().rstrip("?.!:")
+    if not s:
+        return fallback
+    words = s.split()
+    return " ".join(words[:8]) + ("..." if len(words) > 8 else "")
+
+
+def _bulletize(text):
+    """Split one analyst conclusion into short, slide-friendly bullets instead of a
+    single wall-of-text bullet (the cause of the ugly deck)."""
+    import re as _re
+    s = " ".join(str(text or "").split())
+    if not s:
+        return []
+    # Split on sentence/clause boundaries and bullet/dash separators the analyst uses.
+    parts = _re.split(r"(?<=[.;])\s+|\s+[-–—]\s+|\s*•\s*", s)
+    out = []
+    for p in parts:
+        p = p.strip().strip("-–—• ").rstrip(".")
+        if len(p) > 2:
+            out.append(p)
+    return out[:5] or [s[:160]]
+
+
+def _fallback(raw, labels):
+    """Offline / model-failure path: still a structured, slide-friendly document -
+    short headings and bulletized findings, never a pasted transcript."""
     sections = []
     for t in raw["turns"]:
-        bullets = [t["conclusion"]] if t.get("conclusion") else []
-        sections.append({"heading": (t.get("question") or "Findings")[:80],
-                         "bullets": bullets, "table": None})
-    return {"title": raw["title"], "subtitle": "Root-Cause Analysis",
-            "executive_summary": raw.get("headline") or "See findings below.",
+        if not t.get("conclusion"):
+            continue
+        sections.append({"heading": _heading_from(t.get("question"), labels.get("summary", "Findings")),
+                         "bullets": _bulletize(t["conclusion"]), "table": None})
+    return {"title": raw["title"], "subtitle": labels["subtitle"],
+            "executive_summary": raw.get("headline") or "",
             "sections": sections, "recommendations": [], "data_sources": []}

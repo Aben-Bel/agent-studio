@@ -1,18 +1,22 @@
-"""Tool: compare defect rates across process steps.
+"""Tool: compare defect rates across process steps — with a real significance test.
 
-Groups the dataset by process_step, computes defect rate per step,
-and ranks them worst to best. Directly answers 'which step is causing
-the most defects?' without the agent needing to write SQL."""
+Groups the dataset by process_step and shows the per-step defect rate, but it does
+NOT crown a "worst step" from a bare rate sort (that manufactures a culprit even on
+pure noise). The descriptive table is kept; the *claim* of which step is associated
+with defects is delegated to the shared honest stats core, which flags a step only
+when a per-group test passes (effect size + FDR-adjusted p), else reports no
+significant association."""
 import pandas as pd
 from pydantic import BaseModel
 from core.declare import tool
 from connectors import datastore
+from tools.rca import stats_core as sc
 
 
 class ProcessStepArgs(BaseModel):
     table: str = "wafer_defects"
-    step_col: str = "process_step"
-    defect_col: str = "defect_label"
+    step_col: str = "process_step"        # categorical grouping column; blank to infer
+    defect_col: str = "defect_label"      # binary 0/1 outcome; blank to infer
 
 
 @tool(
@@ -38,35 +42,33 @@ def compare_process_steps(
 
     df = pd.DataFrame(rows, columns=cols)
 
-    missing = [c for c in [step_col, defect_col] if c not in df.columns]
-    if missing:
-        return (f"Column(s) not found: {', '.join(missing)}. "
-                f"Available: {', '.join(df.columns)}")
+    # Resolve the contract: a categorical step column + a binary 0/1 outcome.
+    oc, err = sc.resolve_outcome(df, defect_col or None)
+    if err:
+        return f"Incompatible data: {err}."
+    gc, err = sc.resolve_group(df, step_col or None, oc)
+    if err:
+        return f"Incompatible data: {err}."
 
-    df[defect_col] = pd.to_numeric(df[defect_col], errors="coerce").fillna(0)
+    df[oc] = pd.to_numeric(df[oc], errors="coerce")
 
     grp = (
-        df.groupby(step_col)
-        .agg(
-            total_wafers=(defect_col, "count"),
-            defect_count=(defect_col, "sum"),
-        )
+        df.groupby(gc)
+        .agg(total_wafers=(oc, "count"), defect_count=(oc, "sum"))
         .reset_index()
     )
     grp["defect_rate_%"] = (grp["defect_count"] / grp["total_wafers"] * 100).round(2)
     grp = grp.sort_values("defect_rate_%", ascending=False)
 
-    worst = grp.iloc[0]
-    best = grp.iloc[-1]
+    # The honest verdict: a step is called out ONLY if a per-group test flags it.
+    res = sc.group_vs_rest_scan(df, gc, oc)
 
     lines = [
         f"Process step defect comparison — table: {table}",
-        f"Total wafers: {len(df)}  |  Overall defect rate: "
-        f"{df[defect_col].mean() * 100:.2f}%",
+        f"Total wafers: {len(df)}  |  Overall defect rate: {df[oc].mean() * 100:.2f}%",
         "",
         grp.to_string(index=False),
         "",
-        f"Worst step : {worst[step_col]} ({worst['defect_rate_%']}% defect rate)",
-        f"Best step  : {best[step_col]} ({best['defect_rate_%']}% defect rate)",
+        sc.render_scan(res),
     ]
     return "\n".join(lines)
