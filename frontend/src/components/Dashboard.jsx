@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getSources, getProcessStatus, getCapabilities, getRuns } from "../api.js";
+import { prettyName } from "../format.js";
 
 // Overview = full visibility at a glance: what data is connected, what's been
 // ingested, what the platform can do, and every investigation that has run.
@@ -57,7 +58,7 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
           </button>
           {(caps.agents || []).map((a) => (
             <button key={a.name} className="agentcard" onClick={() => onPickAgent && onPickAgent(a.name)}>
-              <div className="agentcard-name">{a.name}</div>
+              <div className="agentcard-name">{prettyName(a.name)}</div>
               <div className="agentcard-desc" title={a.description}>{a.description}</div>
               <div className="agentcard-tools">{(a.tools || []).length} tools</div>
             </button>
@@ -84,7 +85,7 @@ export default function Dashboard({ caps, onOpenRun, onGo, onPickAgent }) {
           {runs.slice(0, 8).map((r) => (
             <div key={r.chat_id} className="runrow" onClick={() => onOpenRun(r.chat_id, r.agent)}>
               <span className={"runstatus " + r.status}>{r.status}</span>
-              <span className="runagent">{r.agent}</span>
+              <span className="runagent">{prettyName(r.agent)}</span>
               <span className="runsteps">{r.steps} steps</span>
               <span className="muted small runtime">{(r.updated || "").replace("T", " ").slice(0, 16)}</span>
             </div>
