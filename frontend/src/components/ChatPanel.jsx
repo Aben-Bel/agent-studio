@@ -309,7 +309,6 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
-        {onBack && <button onClick={onBack}>← {t("overview")}</button>}
         <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? t("hideSetup") : t("setup")}</button>
         <span className="muted" title={"chat " + chatId}>{t("investigate")} · {agents.length} {t("agents")}</span>
         {busy && <button className="stopbtn" onClick={stop}>{t("stop")}</button>}
