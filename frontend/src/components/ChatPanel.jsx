@@ -614,13 +614,23 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
         </Modal>
       )}
 
-      {openRefs && (
-        <Modal title={t("evidenceTitle") || "Where this answer comes from"} wide onClose={() => setOpenRefs(null)}>
+      {openRefs && (() => {
+        // A chip click focuses ONE reference -> show only that one. The "View all
+        // sources" link clears the focus to reveal the full list.
+        const showOne = openRefs.focus != null;
+        const shown = showOne
+          ? openRefs.references.filter((r) => r.n === openRefs.focus)
+          : openRefs.references;
+        const title = showOne
+          ? `${t("evidenceOne") || "Source"} [${openRefs.focus}]`
+          : (t("evidenceTitle") || "Where this answer comes from");
+        return (
+        <Modal title={title} wide onClose={() => setOpenRefs(null)}>
           <p className="muted small" style={{ marginTop: 0 }}>
             {t("evidenceIntro") || "Each item is the exact tool the system ran and the real result it returned from your data — so every claim is verifiable and reproducible."}
           </p>
-          {openRefs.references.map((r) => (
-            <div key={r.n} className={"ref-item" + (r.n === openRefs.focus ? " ref-focus" : "")}>
+          {shown.map((r) => (
+            <div key={r.n} className="ref-item">
               <div className="ref-item-head">
                 <span className="ref-num">[{r.n}]</span>
                 <span className="ref-from">
@@ -635,8 +645,15 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
               <FriendlyResult result={r.result} />
             </div>
           ))}
+          {showOne && openRefs.references.length > 1 && (
+            <button type="button" className="fr-toggle"
+              onClick={() => setOpenRefs({ ...openRefs, focus: null })}>
+              {t("viewAllSources") || "View all sources"} ({openRefs.references.length})
+            </button>
+          )}
         </Modal>
-      )}
+        );
+      })()}
 
       {inspectAgent && (
         <Modal title={`Agent: ${prettyName(inspectAgent.name)}`} onClose={() => setInspectAgent(null)}>

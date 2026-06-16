@@ -62,6 +62,8 @@ const STRINGS = {
     translating: "translating…",
     showRaw: "Show raw data",
     showReadable: "Show readable",
+    evidenceOne: "Source",
+    viewAllSources: "View all sources",
     // overview
     startInvestigation: "Start a root-cause investigation",
     tryAsking: "Try asking:",
@@ -125,6 +127,8 @@ const STRINGS = {
     translating: "übersetze…",
     showRaw: "Rohdaten anzeigen",
     showReadable: "Lesbar anzeigen",
+    evidenceOne: "Quelle",
+    viewAllSources: "Alle Quellen anzeigen",
     startInvestigation: "Ursachenanalyse starten",
     tryAsking: "Fragen Sie z. B.:",
     ttCan: "Kann:",
