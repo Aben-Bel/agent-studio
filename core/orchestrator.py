@@ -1042,6 +1042,7 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
         synthesis = _synthesize(task, results, lang, resolved_verdicts)
     if rollup:
         synthesis = rollup + "\n\n" + synthesis
+    synthesis = _fix_markdown_tables(synthesis)   # repair tables the LLM put on one line
     history.append({"task": task, "synthesis": synthesis})
     # Citable evidence for THIS turn: the exact tool calls + real results behind the
     # answer. Each claim is tied to the specific result that supports it (deterministic
@@ -1242,6 +1243,70 @@ def _rollup_table(task, typed_records, any_stopped_short):
     return "\n".join(lines), resolved
 
 
+def _fix_markdown_tables(text):
+    """Repair GFM tables the LLM collapsed onto ONE line. GitHub-flavoured markdown needs
+    each table row on its own line; the model sometimes emits the whole table on one line
+    (`| a | b | |---|---| | r1c1 | r1c2 | | r2c1 |...`) which renders as a mangled paragraph.
+
+    Anchored on the SEPARATOR row (`|---|---|`): we find it, then split the header before it
+    and the data rows after it into N-column rows using the column count the separator
+    declares. Splitting by column-count (not by the ambiguous `| |`) keeps literal cells
+    like a header named `|lift|` intact. Lossless on already-correct (multi-line) tables."""
+    if not text or "-" not in text or "|" not in text:
+        return text
+    import re
+    sep_re = re.compile(r'\|(?:\s*:?-{2,}:?\s*\|)+')
+
+    def split_cols(blob, ncol):
+        """Split `| c | c | ... | | c | c | ...` into rows of exactly ncol cells. Row
+        boundaries are the `| |` joins (an empty cell between a row's closing pipe and the
+        next row's opening pipe); we drop those, then require every resulting row to have
+        exactly ncol cells. Returns None if any row doesn't — meaning boundaries are
+        ambiguous (e.g. a raw '|' inside a cell), so the caller leaves the text UNTOUCHED
+        rather than mangle it further. SAFE: only acts when every row is unambiguous."""
+        cells = blob.split("|")
+        if cells and cells[0].strip() == "":
+            cells = cells[1:]
+        if cells and cells[-1].strip() == "":
+            cells = cells[:-1]
+        # Re-group into rows of ncol, treating an empty cell at a row boundary (every
+        # ncol+1-th position when a join landed) as the separator. Simplest robust pass:
+        # walk cells, emit a row each ncol non-boundary cells, skipping a lone empty that
+        # sits exactly at a boundary.
+        rows, cur = [], []
+        for c in cells:
+            if c.strip() == "" and not cur:
+                continue                                # the '| |' row-boundary empty
+            cur.append(c.strip())
+            if len(cur) == ncol:
+                rows.append("| " + " | ".join(cur) + " |")
+                cur = []
+        if cur:                                         # leftover cells -> ambiguous
+            return None
+        return rows or None
+
+    out_lines = []
+    for line in text.split("\n"):
+        m = sep_re.search(line)
+        if not m or line.count("|") <= m.group(0).count("|"):
+            out_lines.append(line)                      # not a collapsed table line
+            continue
+        sep = m.group(0)
+        ncol = sep.count("|") - 1
+        before = split_cols(line[:m.start()].strip(), ncol) if line[:m.start()].strip() else []
+        after = split_cols(line[m.end():].strip(), ncol) if line[m.end():].strip() else []
+        # Only rewrite if BOTH sides split cleanly into ncol-column rows. Otherwise the
+        # table is genuinely malformed (raw '|' in a cell) — leave the original line as-is
+        # so we never turn one bad table into several worse ones.
+        if before is None or after is None:
+            out_lines.append(line)
+            continue
+        out_lines.extend(before)
+        out_lines.append(sep.strip())
+        out_lines.extend(after)
+    return "\n".join(out_lines)
+
+
 def _synthesize(task, results, lang="en", verdicts=None):
     """One brief conclusion from the parallel specialists. The full per-specialist
     detail is in the trace, so we do NOT dump it here (that was the verbosity).
@@ -1277,6 +1342,10 @@ def _synthesize(task, results, lang="en", verdicts=None):
               "Answer the question in at most 5 sentences or one small table, rendering "
               "each target's verdict faithfully. Cite the table.column behind each point. "
               "Do NOT repeat the specialists' full text and do NOT add extra sections.\n"
+              "TABLE FORMAT (if you use a table): valid GitHub Markdown ONLY — put EACH row "
+              "on ITS OWN line (header, then the |---|---| separator, then one line per data "
+              "row); never put the whole table on one line. NEVER put a raw '|' inside a cell "
+              "(it breaks the table): write 'abs lift' or 'lift magnitude', not '|lift|'.\n"
               "CRITICAL: a 'genuine null' (tested, no significant association), an "
               "'insufficient' result, and a 'not analyzed' target are DIFFERENT kinds — "
               "render exactly the kind given above for each target; never merge or relabel."}],
