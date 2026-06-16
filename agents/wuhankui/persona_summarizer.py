@@ -10,6 +10,13 @@ from core.declare import agent
     "equipment logs, historical RCA, quality data, process parameters, or "
     "measurement data.",
     tools=["check_summary_readiness", "ask_human"],
+    when_to_use="after specialists have produced intermediate findings and you need to check "
+                "sufficiency for the user persona and write the final summary",
+    how_to_use="pass the question, persona, and gathered findings; it either requests the "
+               "specific missing data/skill or writes a concise persona-fit summary",
+    what_to_use_for="readiness gating and final-summary synthesis with stated uncertainty",
+    what_not_to_use_for="NOT a data/analysis tool — it runs no queries or statistics; do not "
+                        "use it to discover findings, only to assess and summarize existing ones",
 )
 def persona_summarizer(ctx):
     return (

@@ -69,12 +69,20 @@ def yield_trend(
     first, last = rates[0], rates[-1]
     peak = trend.loc[trend["defect_rate_%"].idxmax()]
 
+    # Descriptive pattern flags only. We do NOT assert a cause here: a rising rate or
+    # a spike is an OBSERVATION to investigate, not an established root cause. Naming a
+    # "likely cause" from a rate threshold alone is exactly the unsupported causal claim
+    # the platform must not make.
     if last > first + 5:
-        pattern = "DRIFT — defect rate is rising over the wafer sequence. Likely cause: gradual process degradation, tool wear, or contamination buildup."
+        pattern = ("DRIFT — defect rate rises across the wafer sequence "
+                   f"({first:.2f}% → {last:.2f}%). Observation only; investigate candidates "
+                   "(e.g. tool wear, contamination buildup) before asserting a cause.")
     elif peak["defect_rate_%"] > (sum(rates) / len(rates)) * 1.5:
-        pattern = f"EXCURSION — sudden spike in window {peak['window']} ({peak['defect_rate_%']}%). Likely cause: equipment event, bad material lot, or process upset."
+        pattern = (f"EXCURSION — spike in window {peak['window']} ({peak['defect_rate_%']}%). "
+                   "Observation only; investigate candidates (e.g. equipment event, material "
+                   "lot, process upset) before asserting a cause.")
     else:
-        pattern = "STABLE — no significant drift or excursion detected across the wafer sequence."
+        pattern = "STABLE — no marked drift or excursion across the wafer sequence."
 
     lines = [
         f"Yield trend analysis — table: {table}, {windows} windows over {wafer_col}",

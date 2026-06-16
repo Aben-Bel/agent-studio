@@ -82,11 +82,11 @@ export async function getExportFormats() {
 // (Stop) and safely re-runnable (Retry); never touches the chat session.
 // On success triggers a browser download and returns { filename }.
 // On failure throws Error(message) parsed from the JSON error body.
-export async function exportReport(chatId, format, signal, title) {
+export async function exportReport(chatId, format, signal, title, lang) {
   const res = await fetch(`${BASE}/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, format, title: title || null }),
+    body: JSON.stringify({ chat_id: chatId, format, title: title || null, lang: lang || "en" }),
     signal,
   });
   const media = res.headers.get("Content-Type") || "";

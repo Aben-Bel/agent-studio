@@ -40,9 +40,29 @@ def _richtext(s):
     return s
 
 
+def _strip_md(s):
+    """Remove Markdown decoration so it never survives into a TITLE (where it is
+    escaped literally, not rendered). Fixes raw '**' / '`' leaking and the stray
+    trailing letter when truncation cuts a '**bold**' span mid-way."""
+    s = "" if s is None else str(s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    return s.replace("**", "").replace("`", "").replace("*", "")
+
+
 def _oneline(s, n=110):
-    s = " ".join(_sanitize(s).split())
-    return s if len(s) <= n else s[: n - 1] + "..."
+    s = " ".join(_strip_md(_sanitize(s)).split())
+    return s if len(s) <= n else s[: n - 1].rstrip() + "..."
+
+
+def _title_line(s, n=70):
+    """A frame/title is a LABEL, not a sentence: strip markdown, take the first
+    clause (before a period), and clamp short. Stops authored prose like 'To
+    answer this question, I need the actual data...' from becoming a heading."""
+    s = " ".join(_strip_md(_sanitize(s)).split())
+    s = re.split(r"(?<=[a-z0-9])\.\s", s, maxsplit=1)[0]   # first sentence only
+    s = s.rstrip(" .:-")
+    return s if len(s) <= n else s[: n - 1].rstrip() + "..."
 
 
 def _table(t):
@@ -65,35 +85,58 @@ def build_deck(doc):
     """Return the full .tex source for a self-contained, professional Beamer deck."""
     out = []
     A = out.append
-    A(r"\documentclass[aspectratio=169,11pt]{beamer}")
+    L = doc.get("labels") or {}
+    A(r"\documentclass[aspectratio=169,12pt]{beamer}")
+    # Modern, flat, sans-serif look (Metropolis-inspired) without external themes,
+    # so it compiles anywhere: clean typography, generous whitespace, no shadows.
     A(r"\usetheme{default}")
+    A(r"\usefonttheme{professionalfonts}")
+    A(r"\usepackage[scaled=1.02]{helvet}\renewcommand{\familydefault}{\sfdefault}")
+    # sansmath is nice-to-have; never let a missing package break the compile.
+    A(r"\IfFileExists{sansmath.sty}{\usepackage{sansmath}\sansmath}{}")
     A(r"\setbeamertemplate{navigation symbols}{}")
+    A(r"\setbeamertemplate{itemize/enumerate body begin}{\normalsize}")
     A(r"\definecolor{cgigreen}{RGB}{20,160,90}")
-    A(r"\definecolor{cgideep}{RGB}{14,124,70}")
+    A(r"\definecolor{cgideep}{RGB}{14,110,64}")
+    A(r"\definecolor{inkdark}{RGB}{28,33,40}")
+    A(r"\definecolor{inkmute}{RGB}{110,120,130}")
+    A(r"\setbeamercolor{normal text}{fg=inkdark}")
     A(r"\setbeamercolor{structure}{fg=cgigreen}")
     A(r"\setbeamercolor{frametitle}{fg=cgideep}")
     A(r"\setbeamercolor{title}{fg=cgideep}")
-    A(r"\setbeamerfont{frametitle}{series=\bfseries}")
-    A(r"\setbeamertemplate{itemize item}{\color{cgigreen}\textbullet}")
-    A(r"\setbeamertemplate{frametitle}{\vskip6pt\insertframetitle\vskip-2pt\hrule height 1.2pt\vskip2pt}")
-    A(r"\title{" + _esc(_oneline(doc.get("title", "Report"), 120)) + "}")
-    A(r"\subtitle{" + _esc(_oneline(doc.get("subtitle", "Root-Cause Analysis"))) + "}")
-    A(r"\date{" + _esc(doc.get("generated", "")) + "}")
+    A(r"\setbeamercolor{subtitle}{fg=inkmute}")
+    A(r"\setbeamerfont{frametitle}{series=\bfseries,size=\Large}")
+    A(r"\setbeamerfont{title}{series=\bfseries,size=\huge}")
+    A(r"\setbeamerfont{itemize/enumerate body}{size=\normalsize}")
+    # generous list spacing so slides breathe instead of becoming text walls
+    A(r"\setlength{\leftmargini}{1.6em}")
+    A(r"\setbeamertemplate{itemize item}{\color{cgigreen}\raisebox{0.12ex}{\footnotesize$\blacksquare$}}")
+    A(r"\setbeamertemplate{itemize subitem}{\color{cgigreen}\textendash}")
+    A(r"\setbeamertemplate{frametitle}{\vskip10pt\insertframetitle\vskip3pt"
+      r"{\color{cgigreen}\hrule height 2pt}\vskip4pt}")
+    # a touch of breathing room on every itemize (etoolbox is standard in texlive)
+    A(r"\IfFileExists{etoolbox.sty}{\usepackage{etoolbox}"
+      r"\BeforeBeginEnvironment{itemize}{\vskip2pt}}{}")
+    A(r"\title{" + _esc(_title_line(doc.get("title", "Report"), 80)) + "}")
+    A(r"\subtitle{\normalsize " + _esc(_oneline(doc.get("subtitle", "Root-Cause Analysis"), 95)) + "}")
+    A(r"\date{\small " + _esc(doc.get("generated", "")) + "}")
     A(r"\begin{document}")
     A(r"\begin{frame}[plain]\titlepage\end{frame}")
 
     if doc.get("executive_summary"):
-        A(r"\begin{frame}[allowframebreaks]{Executive summary}")
-        A(r"{\large " + _richtext(doc["executive_summary"]) + "}")
+        A(r"\begin{frame}{" + _esc(L.get("summary", "Executive summary")) + "}")
+        A(r"\vfill")
+        A(r"{\large " + _richtext(_oneline(doc["executive_summary"], 420)) + "}")
+        A(r"\vfill")
         A(r"\end{frame}")
 
     for sec in doc.get("sections", []):
-        A(r"\begin{frame}[allowframebreaks]{" + _esc(_oneline(sec.get("heading", "Findings"), 95)) + "}")
+        A(r"\begin{frame}[allowframebreaks]{" + _esc(_title_line(sec.get("heading", "Findings"), 64)) + "}")
         bullets = sec.get("bullets") or []
         if bullets:
             A(r"\begin{itemize}")
-            for b in bullets:
-                A(r"\item " + _richtext(b))
+            for b in bullets[:6]:                    # cap: one idea per slide, not a wall
+                A(r"\item " + _richtext(_oneline(b, 160)))
             A(r"\end{itemize}")
         if sec.get("table"):
             A(_table(sec["table"]))
@@ -102,19 +145,19 @@ def build_deck(doc):
         A(r"\end{frame}")
 
     if doc.get("recommendations"):
-        A(r"\begin{frame}[allowframebreaks]{Recommendations}")
+        A(r"\begin{frame}[allowframebreaks]{" + _esc(L.get("recommendations", "Recommendations")) + "}")
         A(r"\begin{enumerate}")
-        for r in doc["recommendations"]:
-            A(r"\item " + _richtext(r))
+        for r in doc["recommendations"][:6]:
+            A(r"\item " + _richtext(_oneline(r, 160)))
         A(r"\end{enumerate}")
         A(r"\end{frame}")
 
     if doc.get("data_sources"):
-        A(r"\begin{frame}{Data sources}")
-        A(r"\footnotesize Grounded in verified data:")
+        A(r"\begin{frame}{" + _esc(L.get("data_sources", "Data sources")) + "}")
+        A(r"{\color{inkmute}\footnotesize " + _esc(L.get("grounded", "Grounded in verified data:")) + "}")
         A(r"\begin{itemize}")
         for s in doc["data_sources"][:12]:
-            A(r"\item \texttt{" + _esc(s) + "}")
+            A(r"\item \texttt{\small " + _esc(s) + "}")
         A(r"\end{itemize}")
         A(r"\end{frame}")
 

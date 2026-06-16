@@ -21,6 +21,14 @@ from core.declare import agent
         "search_docs",
         "ask_human",
     ],
+    when_to_use="the question is about defect characterization — type, wafer-zone, "
+                "process-step distribution, or which lot/tool is most affected",
+    how_to_use="point it at the defect table; it profiles by dimension and flags a step as "
+               "associated only when the significance test passes",
+    what_to_use_for="defect type/zone/step profiling, co-occurrence analysis, per-step defect "
+                    "comparison, wafer-map lookup when a wafer_id exists",
+    what_not_to_use_for="needs defect-attribute columns — NOT for FMEA/manual text or spec-limit "
+                        "review; get_wafer_map is a STUB; does not name a culprit step without a passing test",
 )
 def defect_inspection_engineer(ctx):
     return (

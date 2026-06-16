@@ -421,6 +421,20 @@ button.ghost { background: transparent; }
 .setup-list::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 5px; border: 2px solid var(--surface-2); }
 .setup-list::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .mini { font-size: var(--fs-2xs); padding: 3px 9px; border-radius: 6px; }
+
+/* Setup / Trace panel toggles - deliberately noticeable: accent-tinted pill with
+   an icon, and a filled "active" state when its panel is open. */
+.panel-toggle { display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); font-weight: 600; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--accent-line); background: var(--accent-weak);
+  color: var(--accent-deep); cursor: pointer; line-height: 1; white-space: nowrap;
+  transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.panel-toggle .pt-icon { font-size: 1.05em; line-height: 1; }
+.panel-toggle:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+.panel-toggle.on { background: var(--accent); border-color: var(--accent);
+  color: #ffffff; box-shadow: 0 2px 10px var(--accent-line); }
+:root[data-theme="dark"] .panel-toggle.on { color: #031018; }
+:root[data-theme="dark"] .panel-toggle:hover { box-shadow: 0 0 18px rgba(0,229,255,0.20); }
 .check { display: flex; align-items: center; gap: 7px; padding: 5px 0; font-size: var(--fs-sm); cursor: pointer; margin: 0; color: var(--text); }
 .check input { width: auto; }
 .check span { line-height: var(--lh-tight); }
@@ -527,6 +541,19 @@ button.ghost { background: transparent; }
 .dl-item:hover:not(:disabled) { background: var(--accent-weak); color: var(--accent-deep); }
 .dl-item:disabled { opacity: .5; cursor: not-allowed; }
 .dl-label { font-size: var(--fs-sm); }
+
+/* Per-format row with an EN / DE language picker, so each download has both
+   language versions explicitly. */
+.dl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 7px 9px; border-radius: var(--r-sm); }
+.dl-row.off { opacity: .55; }
+.dl-langs { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+.dl-lang { font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid var(--accent-line);
+  background: transparent; color: var(--accent-deep); cursor: pointer; line-height: 1.2; }
+.dl-lang:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.dl-lang.cur { background: var(--accent-weak); border-color: var(--accent); }
+:root[data-theme="dark"] .dl-lang:hover { color: #031018; }
 
 /* export progress / result bar, above the composer */
 .exportbar {

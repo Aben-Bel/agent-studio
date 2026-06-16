@@ -60,6 +60,14 @@ STYLE = (
     "Steps', 'Confidence Limitations', 'Summary', etc.) unless explicitly asked.\n"
     "- No emojis. No filler, hype, flattery, or restating the question.\n"
     "- Reference each claim with the table.column, document, or exact value used.\n"
+    "- STATISTICAL HONESTY (hard rule): every quantitative claim about defects/yield must "
+    "carry n, an effect size, and the adjusted p-value the tool returned. Do NOT use the "
+    "words 'cause', 'root cause', 'drives', 'driven by', or 'responsible for' unless a "
+    "significance test PASSED and confounders were checked; otherwise say 'associated with' "
+    "and state the test result. If a tool returned a 'no significant association' or "
+    "'insufficient/degenerate data' result, REPORT THAT NULL plainly — name no culprit and "
+    "do not substitute a narrative. A confounded variable must be reported as confounded, "
+    "not as a cause.\n"
     "- If something is unknown, missing, or a tool is not implemented, say so in one line.\n"
     "- If the user asks to download, export, save, or get a PDF / slide deck / "
     "presentation / report / document of the findings, CALL the prepare_download tool "
@@ -448,13 +456,41 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
     runs.finish_run(chat_id, sess["status"])
 
 
+# The intake gate is routed to explicitly (run_team gates on it); it is NOT a normal
+# team specialist and must never be pulled into the analysis fan-out.
+INTAKE_AGENT = "readiness"
+
+
 def specialist_agents():
-    """Agents meant to be run as a team (everyone except supervisors that recruit)."""
-    return [n for n, a in AGENTS.all().items() if CONSULT_TOOL not in (a.tools or [])]
+    """Agents meant to be run as a team (everyone except supervisors that recruit and
+    the intake gate)."""
+    return [n for n, a in AGENTS.all().items()
+            if CONSULT_TOOL not in (a.tools or []) and n != INTAKE_AGENT]
 
 
 TEAM_SESSIONS: dict = {}    # chat_id -> [{"task", "synthesis"}] for follow-up continuity
 CLARIFY_PENDING: dict = {}  # chat_id -> {"task"} when the team asked the user to clarify
+# Intake state per chat: {"confirmed": bool, "signature": str}. Readiness is re-run when
+# never confirmed, or when the visible data's signature changed since confirmation.
+READINESS: dict = {}
+
+
+def _data_signature():
+    """Cheap fingerprint of the currently visible data shape (source.table:rows:cols),
+    so the intake gate re-fires when the connected data changes."""
+    try:
+        from connectors import datastore
+        parts = []
+        for s in datastore.list_sources():
+            for t in s.get("tables", []):
+                try:
+                    cols, rows = datastore.run_sql(f'SELECT * FROM "{t}"', source=s["name"])
+                    parts.append(f'{s["name"]}.{t}:{len(rows)}:{",".join(cols)}')
+                except Exception:
+                    parts.append(f'{s["name"]}.{t}:?')
+        return "|".join(sorted(parts))
+    except Exception:
+        return ""
 
 
 def suggest_questions(context="", lang="en"):
@@ -474,19 +510,45 @@ def suggest_questions(context="", lang="en"):
     if cfg.mock_llm:
         return fallback
     info = f"Loaded tables: {', '.join(tables) or 'none'}. Documents: {', '.join(docs) or 'none'}."
-    answer_lang = "" if lang == "en" else f" Write the questions in {model.LANG_NAME.get(lang, 'English')}."
+    sys = _with_lang(
+        "You suggest concise, useful NEXT QUESTIONS the user could ask. Output ONLY the "
+        "questions, exactly one per line. Each must be a single short question (3-9 words) "
+        "ending with '?'. NEVER write an answer, explanation, analysis, code, table, "
+        "markdown, headings, or emojis. Do not number or quote them.", lang)
     try:
         r = model.complete(
             [{"role": "user", "content":
               f"{info}\n{context}\n\nSuggest 3 short, specific questions a yield-analysis "
-              "engineer might ask next given this data. Each under 9 words, concrete. "
-              "One per line, no numbering, no quotes."}],
-            [], "You suggest concise, useful next questions. Output only the questions." + answer_lang)
-        qs = [ln.strip("-*0123456789. \"'") for ln in (r.content or "").splitlines() if ln.strip()]
-        qs = [q for q in qs if 3 < len(q) < 90][:4]
+              "engineer might ask next given this data. Each a single question under 9 words."}],
+            [], sys)
+        qs = [_clean_suggestion(ln) for ln in (r.content or "").splitlines()]
+        qs = [q for q in qs if _is_question(q)][:4]
         return qs or fallback
     except Exception:
         return fallback
+
+
+def _clean_suggestion(line):
+    """Strip list/quote decoration from one suggestion line."""
+    return (line or "").strip().strip("-*•0123456789. \t\"'")
+
+
+def _is_question(q):
+    """Keep ONLY genuine short questions - reject answers/markdown/code/prose that
+    the model sometimes returns instead of a question (the bug that put a full
+    analysis into a 'Try asking' chip)."""
+    if not q:
+        return False
+    # Reject any markdown / code / table / heading / emoji markers, and multi-clause prose.
+    if any(ch in q for ch in ("`", "#", "|", "*", "{", "}", "(", ")", "\\")):
+        return False
+    if any(ord(ch) > 0x2400 for ch in q):          # emoji / symbol block -> not a plain question
+        return False
+    if len(q) > 90 or q.count(" ") > 12:           # too long to be a starter question
+        return False
+    if q.count(".") > 1 or ":" in q:               # looks like a sentence/answer, not a question
+        return False
+    return q.endswith("?")
 
 
 def _route_agents(task, names):
@@ -494,7 +556,7 @@ def _route_agents(task, names):
     the ones the user selected. Routing, not always fan-out. Falls back to all."""
     if len(names) <= 1 or cfg.mock_llm:
         return names
-    catalog = "\n".join(f"- {n}: {AGENTS.get(n).description}" for n in names)
+    catalog = "\n".join(f"- {n}: {AGENTS.get(n).routing_text()}" for n in names)
     try:
         r = model.complete(
             [{"role": "user", "content":
@@ -530,6 +592,49 @@ def _needs_clarification(task, results):
     except Exception:
         return None
     return out.split(":", 1)[1].strip() if out.upper().startswith("CLARIFY:") else None
+
+
+def _run_intake_gate(chat_id, prompt, lang, emit, resume_msg=None):
+    """Drive the readiness agent as the first stop. Yields its UI events (inventory,
+    any ask_human pause) and finally a private {"type": "_intake_ready"} marker IFF the
+    data is confirmed analyzable. If the agent pauses for the human (needs_human) or the
+    readiness verdict is not 'ready', no marker is emitted and the caller stops the turn.
+
+    Runs in SINGLE-agent mode (no_pause=False) so ask_human genuinely suspends the run.
+    `resume_msg` answers a prior ask_human: the stored, paused gate session is continued
+    with the human's reply rather than restarted from scratch."""
+    pend_sess = SESSIONS.get(chat_id)
+    if (resume_msg is not None and pend_sess is not None
+            and pend_sess.get("agent") == INTAKE_AGENT and pend_sess.get("pending")):
+        sess = pend_sess                              # resume the paused gate
+        p = sess.pop("pending")
+        sess["msgs"].append({"role": "tool", "name": p["name"],
+                             "tool_call_id": p["tool_call_id"], "content": resume_msg})
+        sess["status"] = "running"
+    else:
+        agent = AGENTS.get(INTAKE_AGENT)
+        system = _style(agent.fn({}) if callable(agent.fn) else "")
+        sess = {"chat_id": chat_id, "agent": INTAKE_AGENT, "system": system,
+                "msgs": [{"role": "user", "content": prompt}], "status": "running",
+                "pending": None, "step": 0, "inbox": [], "allow_tools": None,
+                "no_pause": False, "lang": lang, "sub": False}
+        # Persist the gate session so a human reply to its ask_human resumes it.
+        SESSIONS[chat_id] = sess
+        yield emit({"type": "agent_switch",
+                    "data": {"agent": INTAKE_AGENT, "role": "intake", "chat_id": chat_id}})
+    verdict = None
+    for ev in _drive(sess):
+        if ev["type"] == "tool_result" and ev["data"].get("name") == "check_readiness":
+            res = ev["data"].get("result")
+            if isinstance(res, dict):
+                verdict = res.get("verdict")
+        if ev["type"] == "needs_human":
+            yield emit(ev)
+            return                                    # paused for the human; not ready
+        yield emit(ev)
+    if verdict == "ready":
+        SESSIONS.pop(chat_id, None)                   # gate done; free the single-agent slot
+        yield {"type": "_intake_ready"}
 
 
 def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, lang="en"):
@@ -574,6 +679,31 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
         return ev
 
     yield emit({"type": "user_message", "data": {"text": user_msg}})
+
+    # ---- Intake gate: confirm the data is analyzable BEFORE routing specialists ----
+    # Runs FIRST only when readiness was never confirmed for this chat, or the visible
+    # data changed since it was. Once confirmed (and unchanged), normal routing proceeds.
+    gate_sess = SESSIONS.get(chat_id)
+    gate_paused = (gate_sess is not None and gate_sess.get("agent") == INTAKE_AGENT
+                   and gate_sess.get("pending"))
+    if INTAKE_AGENT in AGENTS.all() and not skip_clarify:
+        rstate = READINESS.get(chat_id, {})
+        sig = _data_signature()
+        if gate_paused or not (rstate.get("confirmed") and rstate.get("signature") == sig):
+            ready = False
+            # If a prior gate ask_human is pending, THIS message answers it.
+            resume_msg = user_msg if gate_paused else None
+            for ev in _run_intake_gate(chat_id, prompt, lang, emit, resume_msg):
+                if ev.get("type") == "_intake_ready":
+                    ready = True
+                    continue
+                yield ev
+            if not ready:
+                # Data is empty/ambiguous/insufficient: the gate asked the human (or
+                # reported the gap). Stop here; the next user turn re-enters and re-checks.
+                runs.finish_run(chat_id, "awaiting_human")
+                return
+            READINESS[chat_id] = {"confirmed": True, "signature": sig}
 
     # Route: pick only the specialists relevant to this question (not blind fan-out).
     candidates = names

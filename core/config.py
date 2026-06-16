@@ -18,6 +18,14 @@ class Config:
     # S3 bucket for file uploads (direct browser upload via presigned URLs).
     s3_bucket: str = os.getenv("S3_BUCKET", "")
     max_steps: int = int(os.getenv("MAX_STEPS", "8"))
+    # --- Statistical-validity thresholds for the RCA tools (tools/rca/stats_core.py) ---
+    # A group is flagged a candidate cause ONLY if BH-adjusted p < alpha AND |lift| >= min_lift.
+    stat_alpha: float = float(os.getenv("STAT_ALPHA", "0.05"))
+    stat_min_lift: float = float(os.getenv("STAT_MIN_LIFT", "0.03"))      # min practical effect
+    stat_min_group_n: int = int(os.getenv("STAT_MIN_GROUP_N", "30"))      # degeneracy guard
+    # Confounder check only runs on variable pairs at least this correlated (|pearson r|).
+    stat_confounder_corr: float = float(os.getenv("STAT_CONFOUNDER_CORR", "0.6"))
+    stat_logistic_ridge: float = float(os.getenv("STAT_LOGISTIC_RIDGE", "1e-6"))
 
 
 cfg = Config()

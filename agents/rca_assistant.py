@@ -11,9 +11,16 @@ from core.declare import agent
 @agent(
     name="rca_assistant",
     description="Supervises a yield-loss investigation, recruiting specialist agents "
-                "and synthesizing a root cause.",
+                "and synthesizing a conclusion that respects statistical significance.",
     tools=["consult_agent", "correlate_params_vs_yield", "search_fmea",
            "search_docs", "query_data", "list_data_sources", "ask_human"],
+    when_to_use="any multi-faceted yield-loss investigation that needs more than one "
+                "specialist and a synthesized conclusion",
+    how_to_use="give it the investigation question; it recruits specialists via consult_agent "
+               "and synthesizes, reporting a null honestly when the evidence is not significant",
+    what_to_use_for="orchestrating an end-to-end RCA and producing one cited conclusion",
+    what_not_to_use_for="NOT for a single narrow lookup (route straight to the relevant "
+                        "specialist instead); does not itself fabricate a cause when tools return null",
 )
 def rca_assistant(ctx):
     return (
@@ -34,8 +41,10 @@ def rca_assistant(ctx):
         "  - manuals_expert       - broader manual / FMEA document search.\n"
         "  - equipment_specialist - FDC time-series traces, wafer maps, similar cases.\n\n"
         "Recommended flow for a yield-loss investigation:\n"
-        "1. yield_statistician  → which parameters have the strongest correlation "
-        "with the defect target? Any statistical outliers?\n"
+        "1. yield_statistician  → which step/parameter is STATISTICALLY ASSOCIATED "
+        "with the defect target (passing a test, not just a high correlation)? Any "
+        "statistical outliers? Accept a 'no significant association' answer if that is "
+        "what the data shows.\n"
         "2. metrology_analyst   → are those parameters breaching spec or "
         "control limits? Which process steps show the worst compliance?\n"
         "3. defect_profiler     → what does the defect type/zone/step profile "

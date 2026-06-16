@@ -23,10 +23,10 @@ def export_formats():
     return {"formats": export.list_formats()}
 
 
-def _build(chat_id, fmt, title):
+def _build(chat_id, fmt, title, lang="en"):
     """Shared by POST and GET: generate -> file response, or a clean JSON error."""
     try:
-        data, filename, media = export.generate(chat_id, fmt, title)
+        data, filename, media = export.generate(chat_id, fmt, title, lang)
     except KeyError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
     except (ValueError, RuntimeError) as e:
@@ -44,10 +44,11 @@ def run_export(req: ExportRequest):
     """Generate one artifact and stream it as a file download. Errors come back as
     JSON (never a broken download), so the UI shows a message and the chat is
     unaffected."""
-    return _build(req.chat_id, req.format, req.title)
+    return _build(req.chat_id, req.format, req.title, req.lang)
 
 
 @router.get("/export")
-def run_export_get(chat_id: str, format: str = "report_md", title: Optional[str] = None):
+def run_export_get(chat_id: str, format: str = "report_md",
+                   title: Optional[str] = None, lang: str = "en"):
     """Same as POST, as a plain link - so an in-chat 'Download' can be a normal URL."""
-    return _build(chat_id, format, title)
+    return _build(chat_id, format, title, lang)

@@ -7,6 +7,14 @@ from core.declare import agent
     description="Pulls FDC process traces, wafer defect maps, and similar historical "
                 "cases for a lot / tool.",
     tools=["query_fdc_timeseries", "get_wafer_map", "find_similar_cases"],
+    when_to_use="a specific lot ID or wafer ID is known and you need its FDC trace, spatial "
+                "defect map, or matching historical cases",
+    how_to_use="provide the lot/wafer identifier; if it is absent from the data the agent "
+               "reports a DATA GAP rather than asking the user",
+    what_to_use_for="equipment-level confirmation: FDC time-series, wafer defect maps, "
+                    "historical case lookup",
+    what_not_to_use_for="NOT for tabular statistics or association testing, NOT for FMEA/manual "
+                        "text; its tools are STUBS — cannot produce real traces/maps yet",
 )
 def equipment_specialist(ctx):
     return (

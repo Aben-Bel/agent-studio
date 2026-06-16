@@ -30,21 +30,22 @@ def _slug(s):
     return s[:40] or "report"
 
 
-def generate(chat_id, fmt, title=None):
+def generate(chat_id, fmt, title=None, lang="en"):
     """Run one exporter. Returns (bytes, filename, media_type). Raises on unknown
     format, missing dependency, empty investigation, or exporter failure - the
-    router maps those to clean JSON errors so the chat is never affected."""
+    router maps those to clean JSON errors so the chat is never affected. `lang`
+    selects the language the document is authored in (en/de)."""
     if fmt not in EXPORTERS.all():
         raise KeyError(f"unknown export format '{fmt}'")
     decl = EXPORTERS.get(fmt)
     if not _available(decl):
         raise RuntimeError(f"'{decl.label}' needs {', '.join(decl.needs)} which is "
                            "not installed in this environment.")
-    doc = build_document(chat_id, title=title)
+    doc = build_document(chat_id, title=title, lang=lang)
     if doc.get("empty"):
         raise ValueError("Nothing to export yet - run an investigation in this chat first.")
     data = decl.fn(doc)
     if isinstance(data, str):
         data = data.encode("utf-8")
-    name = f"{_slug(doc['title'])}-{chat_id[:8]}.{decl.extension}"
+    name = f"{_slug(doc['title'])}-{lang}-{chat_id[:8]}.{decl.extension}"
     return data, name, decl.media_type

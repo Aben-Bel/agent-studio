@@ -6,25 +6,64 @@ from .registry import AGENTS, TOOLS, SKILLS, MCP, STAGES, EXPORTERS
 
 # ---- AGENT ----
 @dataclass
+class AgentRouting:
+    """Typed, structured self-description the orchestrator routes off of. Each field is
+    grounded in the agent's actual system prompt + allowed tools — NOT freeform marketing.
+    `what_not_to_use_for` must be specific (e.g. 'tabular only; not wafer-map images') to
+    be useful. Empty fields are allowed but discouraged; the orchestrator falls back to
+    `description` when routing metadata is absent."""
+    when_to_use: str = ""
+    how_to_use: str = ""
+    what_to_use_for: str = ""
+    what_not_to_use_for: str = ""
+
+    def as_prompt(self) -> str:
+        parts = []
+        if self.when_to_use:
+            parts.append(f"when to use: {self.when_to_use}")
+        if self.what_to_use_for:
+            parts.append(f"use for: {self.what_to_use_for}")
+        if self.what_not_to_use_for:
+            parts.append(f"NOT for: {self.what_not_to_use_for}")
+        if self.how_to_use:
+            parts.append(f"how: {self.how_to_use}")
+        return "; ".join(parts)
+
+
+@dataclass
 class AgentDecl:
     name: str
     description: str
     fn: Callable                 # fn(ctx) -> system prompt string
     tools: list = field(default_factory=list)   # tool OR skill names it may call
+    routing: AgentRouting = field(default_factory=AgentRouting)   # typed routing metadata
+
+    def routing_text(self) -> str:
+        """Description enriched with routing metadata for the orchestrator's LLM router."""
+        rp = self.routing.as_prompt()
+        return f"{self.description} [{rp}]" if rp else self.description
 
 
-def agent(name, description, tools=None):
+def agent(name, description, tools=None, routing=None,
+          when_to_use="", how_to_use="", what_to_use_for="", what_not_to_use_for=""):
     """Declare an agent. Drop a file in agents/ with this decorator and the
-    orchestrator discovers and routes to it. No shared file is edited."""
+    orchestrator discovers and routes to it. No shared file is edited.
+
+    Routing metadata (typed, not prose) sharpens orchestrator routing. Pass either a
+    ready `AgentRouting` via `routing=`, or the four fields directly as kwargs."""
+    r = routing or AgentRouting(when_to_use=when_to_use, how_to_use=how_to_use,
+                                what_to_use_for=what_to_use_for,
+                                what_not_to_use_for=what_not_to_use_for)
     def deco(fn):
-        AGENTS.register(name)(AgentDecl(name, description, fn, tools or []))
+        AGENTS.register(name)(AgentDecl(name, description, fn, tools or [], r))
         return fn
     return deco
 
 
-def register_custom_agent(name, description, system, tools):
+def register_custom_agent(name, description, system, tools, routing=None):
     """Runtime agent created from the wizard (persona). Same contract, no file."""
-    AGENTS.register(name)(AgentDecl(name, description, (lambda ctx, s=system: s), tools or []))
+    AGENTS.register(name)(AgentDecl(name, description, (lambda ctx, s=system: s),
+                                    tools or [], routing or AgentRouting()))
 
 
 # ---- TOOL ----

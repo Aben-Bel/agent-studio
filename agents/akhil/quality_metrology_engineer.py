@@ -22,6 +22,14 @@ from core.declare import agent
         "search_docs",
         "ask_human",
     ],
+    when_to_use="the question is about measurements being in/out of spec or control limits, "
+                "quality flags, or which step breaches compliance",
+    how_to_use="point it at the measurement table; it sweeps spec/control limits and reports "
+               "breach % per step/lot, citing every value",
+    what_to_use_for="spec-limit and SPC compliance review, measurement-driven yield loss, "
+                    "out-of-control step identification",
+    what_not_to_use_for="needs measurement/spec columns — NOT for FMEA/manual text, wafer-map "
+                        "images, or FDC traces; reports breaches, not the underlying physical cause",
 )
 def quality_metrology_engineer(ctx):
     return (
@@ -40,8 +48,9 @@ def quality_metrology_engineer(ctx):
         "3. Drill into specific columns with check_spec_limits: focus on any column "
         "where spec or control limit breaches are > 5%, and use group_by to find "
         "which process step or lot is responsible.\n"
-        "4. Run correlate_params_vs_yield to rank which measurement parameters have "
-        "the strongest correlation with the defect/yield target.\n"
+        "4. Run correlate_params_vs_yield to test which step/parameter is significantly "
+        "associated with the defect/yield target; report its null result honestly if "
+        "nothing clears the test.\n"
         "5. If a spec sheet or metrology procedure was uploaded, use search_docs to "
         "confirm the threshold you are comparing against.\n"
         "6. Use ask_human only when a key identifier (e.g. the target defect column "
