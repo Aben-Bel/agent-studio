@@ -95,10 +95,12 @@ def evidence_line(e, arg_len=160, res_len=240):
     return e.get("agent", ""), call, _clip(e.get("result", ""), res_len)
 
 
-# Tools whose results are not citable "evidence" for a claim (data discovery / IO /
-# human prompts) — listing them as references just adds noise to the modal.
+# Tools/skills whose results are NOT citable "evidence" for a data claim: data discovery,
+# IO, human prompts, and ADVISORY MATCHING (role/persona matchers read no row data and
+# run no analysis — citing them as proof of a finding is misleading). Listing them just
+# adds noise, or worse, dresses up advice as evidence.
 _NON_EVIDENCE_TOOLS = {"ask_human", "list_data_sources", "load_uploaded_csv",
-                       "prepare_download"}
+                       "prepare_download", "yield_persona_support"}
 
 
 def turn_references(chat_id):

@@ -5,6 +5,7 @@ import { TraceLanes } from "./Trace.jsx";
 import Modal from "./Modal.jsx";
 import AddAgentModal from "./AddAgentModal.jsx";
 import ToolTip from "./ToolTip.jsx";
+import FriendlyResult from "./FriendlyResult.jsx";
 import { useI18n } from "../i18n.jsx";
 import { prettyName } from "../format.js";
 import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport } from "../api.js";
@@ -27,7 +28,7 @@ function jaccard(a, b) {
 // kept PER TURN so previous turns are never wiped on a reply. One input: while it
 // works your text is ADDED CONTEXT, once it is done it is a REPLY.
 export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, refreshCaps }) {
-  const { t, lang } = useI18n();
+  const { t, lang, setSyncing } = useI18n();
   // Pick the right language for a message that carries a {en, de} pair, falling
   // back to the plain text (older events / not-yet-translated). Reading lang here
   // means a language toggle instantly re-renders the whole history - no re-run.
@@ -179,6 +180,14 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   }
   useEffect(() => { if (stickMsg.current && msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight; }, [messages, status]);
   useEffect(() => { if (stickFeed.current && feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [turns]);
+  // Show the "translating…" spinner by the language toggle while any visible message has
+  // a {en,de} pair but no text yet for the CURRENT language (its background translation
+  // is still streaming in). Clears automatically as translation_update events fill them.
+  useEffect(() => {
+    const pending = messages.some((m) => m.i18n && !((m.i18n[lang] || "").trim()));
+    setSyncing(pending);
+    return () => setSyncing(false);
+  }, [messages, lang, setSyncing]);
 
   const toggle = (list, set, n) => set(list.includes(n) ? list.filter((x) => x !== n) : [...list, n]);
   const toolOn = (n) => (tools === null ? true : tools.includes(n));
@@ -295,8 +304,8 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           else if (ev.type === "agent_switch" && d.role === "working") setStatus(prettyName(d.agent) + " started");
           else if (ev.type === "progress") setStatus(who + d.message);
           else if (ev.type === "thinking") setStatus(who + "reasoning...");
-          else if (ev.type === "tool_call") setStatus(who + "using " + d.name);
-          else if (ev.type === "tool_result") setStatus(who + d.name + " done");
+          else if (ev.type === "tool_call") setStatus(who + "using " + prettyName(d.name));
+          else if (ev.type === "tool_result") setStatus(who + prettyName(d.name) + " done");
           if (ev.type === "final" && !d.depth) {
             // Render the answer IMMEDIATELY (do not wait for the stream to close — the
             // stream stays open while background translations stream in as
@@ -476,7 +485,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                 <label key={t.name} className="check">
                   <input type="checkbox" checked={toolOn(t.name)} onChange={() => toggleTool(t.name)} />
                   <ToolTip name={t.name} cap={t.description} cannot={t.limits} side="right">
-                    <span className="toolname">{t.name}</span>
+                    <span className="toolname">{prettyName(t.name)}</span>
                   </ToolTip>
                 </label>
               ))}
@@ -530,9 +539,9 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                         <span className="muted small refs-label">{t("sources") || "Sources"}:</span>
                         {m.references.map((r) => (
                           <button key={r.n} className="ref-chip"
-                            title={`${r.tool}${r.sources ? " · " + r.sources : ""} — click to verify`}
+                            title={`${prettyName(r.tool)}${r.sources ? " · " + r.sources : ""} — click to verify`}
                             onClick={() => setOpenRefs({ references: m.references, focus: r.n })}>
-                            [{r.n}] {r.sources || r.tool}
+                            [{r.n}] {r.sources || prettyName(r.tool)}
                           </button>
                         ))}
                       </div>
@@ -615,7 +624,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
               <div className="ref-item-head">
                 <span className="ref-num">[{r.n}]</span>
                 <span className="ref-from">
-                  {(t("fromData") || "From")} <strong>{r.sources || r.tool}</strong>
+                  {(t("fromData") || "From")} <strong>{r.sources || prettyName(r.tool)}</strong>
                   <span className="muted small"> · {prettyName(r.agent)} ran <code>{r.tool}</code></span>
                 </span>
               </div>
@@ -623,7 +632,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                 <span className="muted small">{t("howToReproduce") || "Reproduce"}:</span>{" "}
                 <code>{r.call}</code>
               </div>
-              <pre className="ref-result">{String(r.result || "(no result captured)")}</pre>
+              <FriendlyResult result={r.result} />
             </div>
           ))}
         </Modal>

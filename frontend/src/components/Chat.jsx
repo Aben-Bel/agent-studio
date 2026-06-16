@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { runChat } from "../api.js";
+import { prettyName } from "../format.js";
 
 export default function Chat({ agentName, onBack }) {
   const [messages, setMessages] = useState([]);
@@ -75,13 +76,13 @@ function renderEvent(ev) {
   const d = ev.data || {};
   switch (ev.type) {
     case "agent_switch":
-      return `routed to ${d.agent}`;
+      return `routed to ${prettyName(d.agent)}`;
     case "progress":
       return d.message;
     case "tool_call":
-      return `${d.kind} ${d.name}(${JSON.stringify(d.args)})`;
+      return `${d.kind} ${prettyName(d.name)}(${JSON.stringify(d.args)})`;
     case "tool_result":
-      return `${d.name} -> ${d.result}`;
+      return `${prettyName(d.name)} -> ${d.result}`;
     case "final":
       return "done";
     case "error":

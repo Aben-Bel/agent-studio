@@ -55,7 +55,7 @@ export default function App() {
     goTo({ view: "investigate", chat: newChatId(), agents: name && name !== "team" ? [name] : [] });
   const openRun = (chatId) => goTo({ view: "investigate", chat: chatId, agents: [] });
 
-  const { t, lang, setLang } = useI18n();
+  const { t, lang, setLang, syncing } = useI18n();
   const { view, agents, chat } = nav;
   const TABS = [["overview", t("overview")], ["investigate", t("investigate")]];
 
@@ -72,9 +72,12 @@ export default function App() {
             onClick={() => setTheme((x) => (x === "dark" ? "light" : "dark"))}>
             {theme === "dark" ? "☀" : "☾"}
           </button>
-          <div className="langtoggle">
-            <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
-            <button className={lang === "de" ? "on" : ""} onClick={() => setLang("de")}>DE</button>
+          <div className="langwrap">
+            <div className="langtoggle">
+              <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
+              <button className={lang === "de" ? "on" : ""} onClick={() => setLang("de")}>DE</button>
+            </div>
+            {syncing && <span className="lang-sync" title={t("translating") || "translating…"}><span className="spin" /></span>}
           </div>
         </div>
       </header>

@@ -80,8 +80,8 @@ export default function TraceEvent({ ev }) {
       : d.role === "resumed" ? `back to ${prettyName(d.agent)}` : `lead ${prettyName(d.agent)}`;
   } else if (ev.type === "progress") head = tx(d, "message", lang);
   else if (ev.type === "thinking") head = tx(d, "text", lang).replace(/\s+/g, " ").slice(0, 80);
-  else if (ev.type === "tool_call") head = d.kind === "agent" ? `recruit ${prettyName((d.args || {}).agent || "")}` : d.name;
-  else if (ev.type === "tool_result") head = `${d.name}`;
+  else if (ev.type === "tool_call") head = d.kind === "agent" ? `recruit ${prettyName((d.args || {}).agent || "")}` : prettyName(d.name);
+  else if (ev.type === "tool_result") head = prettyName(d.name);
   else if (ev.type === "user_message") head = tx(d, "text", lang);
   else if (ev.type === "needs_human") head = "needs human";
   else if (ev.type === "context_added") head = "context added";

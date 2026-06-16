@@ -59,6 +59,9 @@ const STRINGS = {
     evidenceIntro: "Each item is the exact tool the system ran and the real result it returned from your data — so every claim is verifiable and reproducible.",
     fromData: "From",
     howToReproduce: "Reproduce",
+    translating: "translating…",
+    showRaw: "Show raw data",
+    showReadable: "Show readable",
     // overview
     startInvestigation: "Start a root-cause investigation",
     tryAsking: "Try asking:",
@@ -119,6 +122,9 @@ const STRINGS = {
     evidenceIntro: "Jeder Eintrag ist das genaue Tool, das ausgeführt wurde, und das echte Ergebnis aus Ihren Daten — jede Aussage ist überprüf- und reproduzierbar.",
     fromData: "Aus",
     howToReproduce: "Reproduzieren",
+    translating: "übersetze…",
+    showRaw: "Rohdaten anzeigen",
+    showReadable: "Lesbar anzeigen",
     startInvestigation: "Ursachenanalyse starten",
     tryAsking: "Fragen Sie z. B.:",
     ttCan: "Kann:",
@@ -127,13 +133,17 @@ const STRINGS = {
   },
 };
 
-const Ctx = createContext({ lang: "en", t: (k) => k, setLang: () => {} });
+const Ctx = createContext({ lang: "en", t: (k) => k, setLang: () => {}, syncing: false, setSyncing: () => {} });
 
 export function I18nProvider({ children }) {
   const [lang, setLang] = useState(() => localStorage.getItem("lang") || "en");
+  // True while the current language's translations for visible messages are still
+  // streaming in (background-filled). Set by the chat view; shown as a spinner next to
+  // the language toggle so the user knows it's updating, not stuck.
+  const [syncing, setSyncing] = useState(false);
   const set = (l) => { localStorage.setItem("lang", l); setLang(l); };
   const t = (k) => (STRINGS[lang] && STRINGS[lang][k]) || STRINGS.en[k] || k;
-  return <Ctx.Provider value={{ lang, t, setLang: set }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ lang, t, setLang: set, syncing, setSyncing }}>{children}</Ctx.Provider>;
 }
 
 export const useI18n = () => useContext(Ctx);
