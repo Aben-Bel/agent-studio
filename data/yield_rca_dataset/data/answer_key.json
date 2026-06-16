@@ -1,0 +1,446 @@
+{
+  "generator_params": {
+    "seed": 42,
+    "n_per_lot": 10000,
+    "base_rate": 0.03,
+    "a_step": "Etching",
+    "a_param": "temperature_c",
+    "a_quantile": 0.75,
+    "a_lifted": 0.22,
+    "b_rate": 0.05,
+    "c_step": "CMP",
+    "c_param": "voltage_v",
+    "c_quantile": 0.75,
+    "c_lifted": 0.17,
+    "c_decoy_corr": 0.9,
+    "d_step": "Lithography",
+    "d_param": "pressure_torr",
+    "d_quantile": 0.75,
+    "d_lifted": 0.06,
+    "alpha": 0.05,
+    "min_lift": 0.03
+  },
+  "decision_rule": "flag a group only if BH-adjusted p < 0.05 AND |lift| >= 0.03",
+  "lots": [
+    {
+      "lot_id": "LOT_A",
+      "kind": "strong_real_cause",
+      "n": 10000,
+      "overall_defect_rate": 0.0395,
+      "chi2_step_vs_defect": {
+        "chi2": 87.80578340333204,
+        "p_value": 3.850265735233562e-18,
+        "dof": 4
+      },
+      "step_scan": [
+        {
+          "step": "Oxidation",
+          "n": 2006,
+          "defect_rate": 0.03040877367896311,
+          "ci95": [
+            0.023745835493845242,
+            0.03886685995439306
+          ],
+          "lift_vs_rest": -0.011372562323038387,
+          "risk_ratio": 0.7278075951785363,
+          "p_raw": 0.019383304457377293,
+          "p_adj": 0.024229130571721616,
+          "flagged": false
+        },
+        {
+          "step": "Lithography",
+          "n": 1985,
+          "defect_rate": 0.030226700251889168,
+          "ci95": [
+            0.023554936063977346,
+            0.03871327071528552
+          ],
+          "lift_vs_rest": -0.011569931064392806,
+          "risk_ratio": 0.7231850821459452,
+          "p_raw": 0.017822973225268386,
+          "p_adj": 0.024229130571721616,
+          "flagged": false
+        },
+        {
+          "step": "Etching",
+          "n": 1893,
+          "defect_rate": 0.07712625462229265,
+          "ci95": [
+            0.06594577827332444,
+            0.09001959068526437
+          ],
+          "lift_vs_rest": 0.04641205701528636,
+          "risk_ratio": 2.511094563144283,
+          "p_raw": 1.0151190063530504e-20,
+          "p_adj": 5.0755950317652514e-20,
+          "flagged": true
+        },
+        {
+          "step": "Deposition",
+          "n": 2058,
+          "defect_rate": 0.028668610301263362,
+          "ci95": [
+            0.022290420329452235,
+            0.0368031589251326
+          ],
+          "lift_vs_rest": -0.013638113445903596,
+          "risk_ratio": 0.677637211347124,
+          "p_raw": 0.0046445460274195825,
+          "p_adj": 0.011611365068548957,
+          "flagged": false
+        },
+        {
+          "step": "CMP",
+          "n": 2058,
+          "defect_rate": 0.033527696793002916,
+          "ci95": [
+            0.02657829449203688,
+            0.04221535095579965
+          ],
+          "lift_vs_rest": -0.007519898271212647,
+          "risk_ratio": 0.8168005151227888,
+          "p_raw": 0.11856661874641633,
+          "p_adj": 0.11856661874641632,
+          "flagged": false
+        }
+      ],
+      "mechanism_test": {
+        "step": "Etching",
+        "param": "temperature_c",
+        "threshold": 92.0983547296388,
+        "high_rate": 0.23417721518987342,
+        "high_n": 474,
+        "low_rate": 0.02466525722339676,
+        "low_n": 1419,
+        "abs_lift": 0.20951195796647665,
+        "risk_ratio": 9.494213381555154,
+        "p_value": 1.4067063286608424e-49
+      },
+      "expected_null_vars": [
+        "pressure_torr",
+        "gas_flow_sccm",
+        "etch_rate_nm_min",
+        "voltage_v",
+        "current_ma"
+      ]
+    },
+    {
+      "lot_id": "LOT_B",
+      "kind": "pure_null",
+      "n": 10000,
+      "overall_defect_rate": 0.0501,
+      "chi2_step_vs_defect": {
+        "chi2": 6.586821754606441,
+        "p_value": 0.1594014551136847,
+        "dof": 4
+      },
+      "step_scan": [
+        {
+          "step": "Oxidation",
+          "n": 1993,
+          "defect_rate": 0.050677370797792276,
+          "ci95": [
+            0.04188252497087633,
+            0.061201064633827434
+          ],
+          "lift_vs_rest": 0.0007210825500090848,
+          "risk_ratio": 1.0144342699448068,
+          "p_raw": 0.8949501938771346,
+          "p_adj": 0.8949501938771347,
+          "flagged": false
+        },
+        {
+          "step": "Lithography",
+          "n": 1980,
+          "defect_rate": 0.048484848484848485,
+          "ci95": [
+            0.03986705217201106,
+            0.058851313245873116
+          ],
+          "lift_vs_rest": -0.002013904632358496,
+          "risk_ratio": 0.9601197156752712,
+          "p_raw": 0.7129660642896317,
+          "p_adj": 0.8912075803620396,
+          "flagged": false
+        },
+        {
+          "step": "Etching",
+          "n": 1995,
+          "defect_rate": 0.05363408521303258,
+          "ci95": [
+            0.04457796141428257,
+            0.06440596207420196
+          ],
+          "lift_vs_rest": 0.004414847236767751,
+          "risk_ratio": 1.0896975942394056,
+          "p_raw": 0.41866357028040013,
+          "p_adj": 0.6977726171340003,
+          "flagged": false
+        },
+        {
+          "step": "Deposition",
+          "n": 1979,
+          "defect_rate": 0.0404244567963618,
+          "ci95": [
+            0.03260014822106298,
+            0.050029548472813115
+          ],
+          "lift_vs_rest": -0.01206276424839571,
+          "risk_ratio": 0.7701771210537245,
+          "p_raw": 0.027590568821503736,
+          "p_adj": 0.13795284410751868,
+          "flagged": false
+        },
+        {
+          "step": "CMP",
+          "n": 2053,
+          "defect_rate": 0.056989771066731615,
+          "ci95": [
+            0.04776435868466647,
+            0.06787001977208976
+          ],
+          "lift_vs_rest": 0.008669650266429615,
+          "risk_ratio": 1.1794211215294692,
+          "p_raw": 0.10844109555564427,
+          "p_adj": 0.2711027388891107,
+          "flagged": false
+        }
+      ],
+      "mechanism_test": null,
+      "expected_null_vars": [
+        "temperature_c",
+        "pressure_torr",
+        "gas_flow_sccm",
+        "etch_rate_nm_min",
+        "voltage_v",
+        "current_ma",
+        "process_step"
+      ]
+    },
+    {
+      "lot_id": "LOT_C",
+      "kind": "real_cause_plus_decoy",
+      "n": 10000,
+      "overall_defect_rate": 0.0359,
+      "chi2_step_vs_defect": {
+        "chi2": 56.68080939215186,
+        "p_value": 1.4433934341969526e-11,
+        "dof": 4
+      },
+      "step_scan": [
+        {
+          "step": "Oxidation",
+          "n": 2064,
+          "defect_rate": 0.03246124031007752,
+          "ci95": [
+            0.02564199367185955,
+            0.04101765762831742
+          ],
+          "lift_vs_rest": -0.004333114528632158,
+          "risk_ratio": 0.8822342571944356,
+          "p_raw": 0.3458631694809806,
+          "p_adj": 0.3458631694809806,
+          "flagged": false
+        },
+        {
+          "step": "Lithography",
+          "n": 1934,
+          "defect_rate": 0.02998965873836608,
+          "ci95": [
+            0.02327046006448085,
+            0.03857236547915491
+          ],
+          "lift_vs_rest": -0.0073274749090428,
+          "risk_ratio": 0.8036431474540225,
+          "p_raw": 0.11979856530830739,
+          "p_adj": 0.14974820663538424,
+          "flagged": false
+        },
+        {
+          "step": "Etching",
+          "n": 1990,
+          "defect_rate": 0.024120603015075376,
+          "ci95": [
+            0.01824090301838234,
+            0.031834087893633935
+          ],
+          "lift_vs_rest": -0.014705863901279183,
+          "risk_ratio": 0.6212412545040313,
+          "p_raw": 0.0015999637459137718,
+          "p_adj": 0.0039999093647844295,
+          "flagged": false
+        },
+        {
+          "step": "Deposition",
+          "n": 2071,
+          "defect_rate": 0.02993722839208112,
+          "ci95": [
+            0.023423296547589526,
+            0.03819181662538715
+          ],
+          "lift_vs_rest": -0.00752020634117654,
+          "risk_ratio": 0.7992332791946506,
+          "p_raw": 0.10141630262653416,
+          "p_adj": 0.14974820663538424,
+          "flagged": false
+        },
+        {
+          "step": "CMP",
+          "n": 1941,
+          "defect_rate": 0.06388459556929418,
+          "ci95": [
+            0.05384328040434217,
+            0.07564880779451169
+          ],
+          "lift_vs_rest": 0.03472465016663877,
+          "risk_ratio": 2.1908338540125185,
+          "p_raw": 1.557517088604979e-13,
+          "p_adj": 7.787585443024895e-13,
+          "flagged": true
+        }
+      ],
+      "mechanism_test": {
+        "step": "CMP",
+        "param": "voltage_v",
+        "threshold": 6.013751887872171,
+        "high_rate": 0.1646090534979424,
+        "high_n": 486,
+        "low_rate": 0.030240549828178694,
+        "low_n": 1455,
+        "abs_lift": 0.1343685036697637,
+        "risk_ratio": 5.4433221099887765,
+        "p_value": 9.861291507378936e-26
+      },
+      "expected_null_vars": [
+        "temperature_c",
+        "pressure_torr",
+        "gas_flow_sccm",
+        "etch_rate_nm_min",
+        "current_ma"
+      ],
+      "confounder_test": {
+        "scope": "CMP",
+        "current_voltage_corr": 0.9043741175843789,
+        "naive_marginal_current_p": 2.950706630214631e-09,
+        "naive_marginal_current_lift": 0.06587957998449892,
+        "logistic_conditional": {
+          "intercept": {
+            "coef": -2.9097859858782185,
+            "p_value": 7.789252904101033e-151
+          },
+          "voltage_v": {
+            "coef": 0.5942477665949703,
+            "p_value": 0.008083116497843868
+          },
+          "current_ma": {
+            "coef": 0.14730143696151854,
+            "p_value": 0.510444222114016
+          }
+        },
+        "verdict": "current_ma is confounded by voltage_v: significant marginally, but its independent logistic coefficient is ~0 (non-significant) once voltage_v is in the model; voltage_v stays significant"
+      }
+    },
+    {
+      "lot_id": "LOT_D",
+      "kind": "subtle_near_noise_cause",
+      "n": 10000,
+      "overall_defect_rate": 0.0348,
+      "chi2_step_vs_defect": {
+        "chi2": 3.094028015069816,
+        "p_value": 0.542215198071381,
+        "dof": 4
+      },
+      "step_scan": [
+        {
+          "step": "Oxidation",
+          "n": 2060,
+          "defect_rate": 0.03300970873786408,
+          "ci95": [
+            0.026121955335100172,
+            0.04163595786909147
+          ],
+          "lift_vs_rest": -0.00225477488933995,
+          "risk_ratio": 0.9360610263522886,
+          "p_raw": 0.6187915269235179,
+          "p_adj": 0.7268269397949187,
+          "flagged": false
+        },
+        {
+          "step": "Lithography",
+          "n": 1959,
+          "defect_rate": 0.04032669729453803,
+          "ci95": [
+            0.03247692643445044,
+            0.04997577886790305
+          ],
+          "lift_vs_rest": 0.00687314674112427,
+          "risk_ratio": 1.2054534310237184,
+          "p_raw": 0.1366364714398922,
+          "p_adj": 0.683182357199461,
+          "flagged": false
+        },
+        {
+          "step": "Etching",
+          "n": 1981,
+          "defect_rate": 0.03634528016153458,
+          "ci95": [
+            0.028960534223199802,
+            0.045524805060297685
+          ],
+          "lift_vs_rest": 0.0019270235210557124,
+          "risk_ratio": 1.0559884116498035,
+          "p_raw": 0.6751617948057496,
+          "p_adj": 0.7268269397949187,
+          "flagged": false
+        },
+        {
+          "step": "Deposition",
+          "n": 1972,
+          "defect_rate": 0.030933062880324543,
+          "ci95": [
+            0.024156496768083638,
+            0.03953362899908312
+          ],
+          "lift_vs_rest": -0.004816812555649547,
+          "risk_ratio": 0.8652635149938865,
+          "p_raw": 0.29568677804732857,
+          "p_adj": 0.7268269397949187,
+          "flagged": false
+        },
+        {
+          "step": "CMP",
+          "n": 2028,
+          "defect_rate": 0.03353057199211045,
+          "ci95": [
+            0.026535448542767966,
+            0.04228960159893599
+          ],
+          "lift_vs_rest": -0.0015923582637851832,
+          "risk_ratio": 0.9546632854325161,
+          "p_raw": 0.7268269397949187,
+          "p_adj": 0.7268269397949187,
+          "flagged": false
+        }
+      ],
+      "mechanism_test": {
+        "step": "Lithography",
+        "param": "pressure_torr",
+        "threshold": 763.4246365787251,
+        "high_rate": 0.0653061224489796,
+        "high_n": 490,
+        "low_rate": 0.031994554118447927,
+        "low_n": 1469,
+        "abs_lift": 0.03331156833053167,
+        "risk_ratio": 2.0411636995223623,
+        "p_value": 0.0011709953911997221
+      },
+      "expected_null_vars": [
+        "temperature_c",
+        "gas_flow_sccm",
+        "etch_rate_nm_min",
+        "voltage_v",
+        "current_ma"
+      ]
+    }
+  ]
+}
