@@ -230,11 +230,11 @@ export async function createAgent(agent) {
 
 // Streams orchestrator events. Pass chat_id to keep a stateful, resumable
 // session (memory + human-in-the-loop). onEvent is called for each {type, data}.
-export async function runChat({ agent, message, history, chat_id, agents, allow_tools, sources, lang }, onEvent, signal) {
-  const res = await fetch(`${BASE}/run`, {
+async function _streamSSE(path, body, onEvent, signal) {
+  const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, message, history: history || [], chat_id, agents, allow_tools, sources, lang }),
+    body: JSON.stringify(body),
     signal,
   });
   const reader = res.body.getReader();
@@ -252,4 +252,13 @@ export async function runChat({ agent, message, history, chat_id, agents, allow_
       if (line) onEvent(JSON.parse(line.slice(5).trim()));
     }
   }
+}
+
+export async function runChat({ agent, message, history, chat_id, agents, allow_tools, sources, lang }, onEvent, signal) {
+  return _streamSSE("/run", { agent, message, history: history || [], chat_id, agents, allow_tools, sources, lang }, onEvent, signal);
+}
+
+// Continue a team investigation that stopped at the step limit (user pressed "Continue").
+export async function continueChat({ chat_id, agents, allow_tools, sources, lang }, onEvent, signal) {
+  return _streamSSE("/continue", { chat_id, agents, allow_tools, sources, lang }, onEvent, signal);
 }

@@ -37,6 +37,19 @@ def run(req: RunRequest):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+@router.post("/continue")
+def continue_run(req: RunRequest):
+    """Continue a team investigation that stopped at the step limit. Streams the same
+    way as /run. The user approved 'continue'; the orchestrator resumes the original
+    task as a continuation, finishing only the targets left not-analyzed."""
+    def gen():
+        stream = orchestrator.resume_truncated(
+            req.chat_id, req.agents or None, req.allow_tools, req.sources, req.lang)
+        for ev in stream:
+            yield f"data: {json.dumps(ev)}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @router.post("/agents")
 def create_agent(req: CreateAgentRequest):
     """Create a custom agent from a persona. Registered live and immediately

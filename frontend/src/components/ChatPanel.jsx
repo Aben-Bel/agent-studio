@@ -8,7 +8,7 @@ import ToolTip from "./ToolTip.jsx";
 import FriendlyResult from "./FriendlyResult.jsx";
 import { useI18n } from "../i18n.jsx";
 import { prettyName } from "../format.js";
-import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport, deleteSource, deleteDocument, forgetSource } from "../api.js";
+import { runChat, continueChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport, deleteSource, deleteDocument, forgetSource } from "../api.js";
 
 const Md = ({ children }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ""}</ReactMarkdown></div>
@@ -347,7 +347,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             // stream stays open while background translations stream in as
             // translation_update events). Mark it answered so post-loop doesn't double-add.
             answer = d.message; answerI18n = d.message_i18n; references = d.references || []; answerShown = true;
-            setMessages((m) => [...m, { role: "assistant", text: d.message, i18n: d.message_i18n, references: d.references || [], eid: d.eid }]);
+            setMessages((m) => [...m, { role: "assistant", text: d.message, i18n: d.message_i18n, references: d.references || [], eid: d.eid, truncated: !!d.truncated }]);
             // The answer is on screen — stop showing the "working…" status line. The
             // stream stays open for SILENT background translation; the user is not told.
             setBusy(false); setStatus("");
@@ -383,6 +383,43 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     else setMessages((m) => [...m, { role: "assistant", text: "_(no answer was produced)_" }]);
     setBusy(false); setSuggLoading(false);
     reloadTurns();   // reconcile the trace with the authoritative audit trail
+  }
+
+  // Continue a truncated investigation (user pressed "Continue where it stopped").
+  // Streams a fresh team run that finishes the unanalyzed targets; rendered like a run.
+  async function continueRun() {
+    setTurns((t) => [...t, { question: "(continue)", events: [] }]);
+    stickMsg.current = true; stickFeed.current = true;
+    setBusy(true); setAwaiting(null); setError(null); setStatus("continuing...");
+    const ac = new AbortController(); abortRef.current = ac;
+    let errored = null;
+    try {
+      await continueChat(
+        { chat_id: chatId, agents, allow_tools: tools === null ? undefined : tools, sources: scopedSources(), lang },
+        (ev) => {
+          if (ev.type !== "user_message") appendEvent(ev);
+          const d = ev.data || {}; const who = d.agent_scope ? prettyName(d.agent_scope) + ": " : "";
+          if (ev.type === "agent_switch" && d.role === "dispatch") setStatus("dispatched to " + (d.agents || []).map(prettyName).join(", "));
+          else if (ev.type === "progress") setStatus(who + d.message);
+          else if (ev.type === "tool_call") setStatus(who + "using " + prettyName(d.name));
+          else if (ev.type === "tool_result") setStatus(who + prettyName(d.name) + " done");
+          if (ev.type === "final" && !d.depth) {
+            setMessages((m) => [...m, { role: "assistant", text: d.message, i18n: d.message_i18n, references: d.references || [], eid: d.eid, truncated: !!d.truncated }]);
+            setBusy(false); setStatus("");
+          }
+          if (ev.type === "translation_update" && d.field !== "questions") {
+            setMessages((m) => m.map((x) => x.eid && x.eid === d.eid && x.i18n ? { ...x, i18n: { ...x.i18n, [d.lang]: d.text } } : x));
+          }
+          if (ev.type === "error" && !d.agent_scope) errored = d.message;
+          if (ev.type === "suggestions") { setSuggestions(d.questions_i18n || d.questions || []); setSuggLoading(false); }
+        }, ac.signal);
+    } catch (e) {
+      if (ac.signal.aborted) { setBusy(false); setStatus(""); abortRef.current = null; return; }
+      errored = String(e.message || e);
+    }
+    abortRef.current = null; setStatus(""); setBusy(false);
+    if (errored) { setError(errored); setMessages((m) => [...m, { role: "assistant", text: "Error: " + errored, error: true }]); }
+    reloadTurns();
   }
 
   function submit() {
@@ -615,6 +652,14 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                 : <div key={i} className={"msg " + m.role + (m.pending ? " pendingq" : "") + (m.error ? " errmsg" : "")}>
                     {m.pending && <span className="ask">needs your input</span>}
                     {m.role === "assistant" ? <Md>{pick(m.i18n, m.text)}</Md> : pick(m.i18n, m.text)}
+                    {/* Truncated run: the investigation stopped at the step limit. Offer to
+                        continue from where it stopped — only on the LAST message, when idle. */}
+                    {m.role === "assistant" && m.truncated && i === messages.length - 1 && !busy && (
+                      <div className="truncated-bar">
+                        <span className="muted small">{t("truncatedNote") || "Investigation stopped at the step limit — it is incomplete."}</span>
+                        <button className="primary" onClick={continueRun}>{t("continueRun") || "Continue where it stopped"}</button>
+                      </div>
+                    )}
                     {m.role === "assistant" && (m.references || []).length > 0 && (
                       <div className="refs">
                         <span className="muted small refs-label">{t("sources") || "Sources"}:</span>

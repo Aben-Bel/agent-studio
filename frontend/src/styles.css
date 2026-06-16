@@ -739,6 +739,13 @@ button.ghost { background: transparent; }
 .ref-more { background: transparent; border-style: dashed; color: var(--muted); font-weight: 600; }
 .ref-more:hover { background: var(--surface-2); border-color: var(--line-strong); color: var(--text); }
 
+/* Truncated-run bar: the investigation stopped at the step limit; offer to continue. */
+.truncated-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px;
+  padding: 8px 12px; border: 1px solid var(--warn-line); background: var(--warn-bg);
+  border-radius: var(--r-sm); }
+.truncated-bar .muted { color: var(--warn); }
+.truncated-bar button { margin-left: auto; }
+
 .ref-item { border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--sp-3);
   margin-bottom: var(--sp-3); background: var(--surface-2); }
 .ref-item.ref-focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-weak); }

@@ -212,15 +212,49 @@ def group_vs_rest_scan(df: pd.DataFrame, group_col: str, outcome_col: str,
 # --------------------------------------------------------------------------- #
 # Row scope — a VALIDATED structured filter applied in pandas (never raw SQL).   #
 # --------------------------------------------------------------------------- #
+def _norm_token(v) -> str:
+    """Normalise a scope value/cell for tolerant matching: lowercase, strip, and keep
+    only alphanumerics (so 'LOT_A', 'lot a', 'Lot-A', 'A' all reduce comparably).
+    Purely structural — no hardcoded values or formats."""
+    import re
+    return re.sub(r'[^a-z0-9]', '', str(v).strip().lower())
+
+
+def _resolve_value(col_values, wanted_raw):
+    """Map a requested scope value to an ACTUAL value present in the column, tolerantly:
+    exact → case/format-insensitive (normalised) → unique suffix/substring match. Returns
+    the real value, or None if it cannot be resolved unambiguously. Data-driven: the truth
+    is whatever values the column actually holds, in whatever format."""
+    actual = list(dict.fromkeys(col_values))           # unique, order-preserving
+    # 1. exact
+    if wanted_raw in actual:
+        return wanted_raw
+    nw = _norm_token(wanted_raw)
+    if not nw:
+        return None
+    norm_map = {}
+    for a in actual:
+        norm_map.setdefault(_norm_token(a), a)
+    # 2. exact normalised ('A' vs 'a', 'LOT_A' vs 'lot a')
+    if nw in norm_map:
+        return norm_map[nw]
+    # 3. requested is a SUFFIX/substring of exactly one actual ('A' -> 'LOT_A'),
+    #    or an actual is a substring of the request — but only if UNAMBIGUOUS.
+    cands = [a for na, a in norm_map.items() if na.endswith(nw) or nw.endswith(na)
+             or nw in na or na in nw]
+    return cands[0] if len(cands) == 1 else None
+
+
 def apply_scope(df: pd.DataFrame, scope) -> tuple[pd.DataFrame, list[str], str | None]:
     """Restrict `df` to rows matching a structured scope, injection-safe.
 
-    `scope` is one filter `{"column": str, "values": [...]}` or a LIST of such
-    filters (AND-combined). Column names are validated against df.columns; values
-    are compared as strings against the column's string form, so it works whatever
-    the dtype/schema. Returns (filtered_df, labels, error) where `labels` is a human
-    description of the scope (for the `target` field). `scope=None`/empty => df
-    unchanged, no error.
+    `scope` is one filter `{"column": str, "values": [...]}` or a LIST of such filters
+    (AND-combined). Column names are validated against df.columns. VALUES are matched
+    TOLERANTLY against the column's real values (exact → case/format-insensitive →
+    unambiguous substring), so a request for 'A', 'LOT_A', 'lot a', or 'Lot-A' all hit
+    the actual value whatever its stored format. If a value cannot be resolved, the error
+    LISTS the real available values so the caller can self-correct instead of guessing.
+    No value or format is ever hardcoded. Returns (filtered_df, labels, error).
     """
     if not scope:
         return df, [], None
@@ -233,15 +267,25 @@ def apply_scope(df: pd.DataFrame, scope) -> tuple[pd.DataFrame, list[str], str |
         col = f.get("column")
         vals = f.get("values")
         if not col or col not in df.columns:
-            return df, [], (f"scope column '{col}' not found; available: "
+            return df, [], (f"scope column '{col}' not found; available columns: "
                             f"{', '.join(map(str, df.columns))}")
         if vals is None:
             return df, [], f"scope for '{col}' has no values"
         vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
-        wanted = {str(v) for v in vals}
-        mask = out[col].astype(str).isin(wanted)
+        col_values = out[col].astype(str).tolist()
+        resolved, unresolved = [], []
+        for v in vals:
+            r = _resolve_value(col_values, str(v))
+            (resolved.append(r) if r is not None else unresolved.append(str(v)))
+        if unresolved:
+            available = list(dict.fromkeys(col_values))
+            shown = ", ".join(map(str, available[:20])) + (" …" if len(available) > 20 else "")
+            return df, [], (f"scope value(s) {unresolved} not found in '{col}'. "
+                            f"Real values in '{col}': {shown}. "
+                            "Use one of these exact values (do not guess the format).")
+        mask = out[col].astype(str).isin(set(resolved))
         out = out[mask]
-        labels.append(f"{col}={'|'.join(map(str, vals))}")
+        labels.append(f"{col}={'|'.join(map(str, resolved))}")
     return out, labels, None
 
 

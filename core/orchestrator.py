@@ -745,6 +745,7 @@ def specialist_agents():
 
 TEAM_SESSIONS: dict = {}    # chat_id -> [{"task", "synthesis"}] for follow-up continuity
 CLARIFY_PENDING: dict = {}  # chat_id -> {"task"} when the team asked the user to clarify
+TRUNCATED_RUNS: dict = {}   # chat_id -> {"task", "lang", "agents"} when a run hit the step cap
 
 
 def suggest_questions(context="", lang="en"):
@@ -886,6 +887,27 @@ def _needs_clarification(task, results):
     return out.split(":", 1)[1].strip() if out.upper().startswith("CLARIFY:") else None
 
 
+def resume_truncated(chat_id, agent_names=None, allow_tools=None, sources=None, lang="en"):
+    """Continue a run that stopped at the step limit. Re-runs the team on the ORIGINAL
+    task, but framed as a CONTINUATION: the prior turn's conclusion is already in the
+    team history (TEAM_SESSIONS), so the agents see what was done and are told to finish
+    the targets that were left not-analyzed/incomplete — not to redo the whole thing.
+    No new user input needed; the user just approved 'continue'."""
+    info = TRUNCATED_RUNS.pop(chat_id, None)
+    if not info:
+        # Nothing to resume — behave like a gentle no-op the UI can show.
+        yield {"type": "final", "data": {"message": "Nothing to continue — the previous "
+               "investigation was not truncated.", "chat_id": chat_id}}
+        return
+    cont = (f"CONTINUE the previous investigation: {info['task']}\n\n"
+            "It stopped at the step limit before finishing. Using what is already "
+            "established (in the investigation history above), complete ONLY the targets "
+            "that were left not-analyzed or incomplete — do not redo finished targets. "
+            "Report the same typed verdicts for the remaining targets.")
+    yield from run_team(chat_id, cont, agent_names=agent_names, allow_tools=allow_tools,
+                        sources=sources, lang=info.get("lang", lang))
+
+
 def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, lang="en"):
     """Run multiple agents IN PARALLEL on the same task, stream their interleaved
     steps, then EITHER ask the user one clarifying question (if the input was
@@ -1023,10 +1045,18 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
         synthesis, references = cite_conclusion(synthesis, turn_references(chat_id))
     except Exception:
         references = []
-    runs.finish_run(chat_id, "done")
+    # Truncation: if any agent hit the step ceiling, the investigation is INCOMPLETE,
+    # not finished. Flag it so the UI offers "continue from where it stopped" rather than
+    # presenting a partial result as the whole answer. Remember the original task so a
+    # resume can pick up the unfinished targets.
+    truncated = bool(stopped_short)
+    if truncated:
+        TRUNCATED_RUNS[chat_id] = {"task": task, "lang": lang,
+                                   "agents": list(stopped_short)}
+    runs.finish_run(chat_id, "truncated" if truncated else "done")
     yield emit({"type": "final",
                 "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True,
-                         "references": references}})
+                         "references": references, "truncated": truncated}})
     try:
         # Feed the FULL conclusion (not a 400-char clip): the answer often names the exact
         # tables/columns the next question should reference (e.g. "wafer_defects has

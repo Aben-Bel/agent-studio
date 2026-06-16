@@ -105,11 +105,29 @@ _NON_EVIDENCE_TOOLS = {"ask_human", "list_data_sources", "load_uploaded_csv",
 
 def _is_evidence(tool):
     """A call counts as EVIDENCE only if it produced real data from a tool/query.
-    Excludes the platform plumbing above AND any '*_guidance' skill: those return a
-    persona/steering PROMPT (no data, no analysis), so showing them as a 'source'
-    dresses up the agent's own instructions as verifiable evidence - misleading."""
+    Excludes the platform plumbing above AND any '*_guidance'/'*_readiness' skill:
+    those return a persona/steering PROMPT or a data-shape check (no finding), so
+    showing them as a 'source' dresses up plumbing as verifiable evidence."""
     t = tool or ""
-    return t not in _NON_EVIDENCE_TOOLS and not t.endswith("_guidance")
+    return (t not in _NON_EVIDENCE_TOOLS
+            and not t.endswith("_guidance")
+            and not t.endswith("_readiness")
+            and "readiness" not in t)
+
+
+def _is_discovery_query(call):
+    """True for a SQL call that is the agent LOOKING AROUND, not producing a finding:
+    row previews (LIMIT 1-5) and schema/enumeration probes (SELECT DISTINCT, LIMIT 0,
+    information_schema). These are how the agent learns the data — citing them as
+    evidence for a claim is noise. Heuristic over the rendered call string."""
+    c = (call or "").lower()
+    import re
+    if "limit 0" in c or "information_schema" in c or "select distinct" in c:
+        return True
+    m = re.search(r'limit\s+(\d+)', c)
+    if m and int(m.group(1)) <= 5:
+        return True
+    return False
 
 
 def turn_references(chat_id):
@@ -138,6 +156,8 @@ def turn_references(chat_id):
             continue
         seen.add(key)
         agent, call, _ = evidence_line(e, arg_len=200, res_len=10_000)
+        if _is_discovery_query(call):
+            continue                                   # preview/enumeration probe, not a finding
         refs.append({
             "n": len(refs) + 1,
             "agent": agent,
@@ -148,6 +168,12 @@ def turn_references(chat_id):
             "sources": _sources_touched(e),
         })
     return refs
+
+
+# A claim backed by more than a few sources is almost always the matcher over-firing on
+# shared tokens, not a genuinely multi-sourced fact. Cap the markers per sentence to the
+# strongest matches so the text stays readable ([1][2][3], never [1]..[40]).
+_MAX_CITES_PER_SENTENCE = 3
 
 
 def _salient_tokens(text):
@@ -226,12 +252,19 @@ def cite_conclusion(text, references):
         tail = parts[i + 1] if i + 1 < len(parts) else ""
         s_nums, s_idents = _salient_tokens(sentence)
         if s_nums or s_idents:
-            hits = []
+            scored = []
             for idx, (r_nums, r_idents) in enumerate(ref_tokens):
                 # A reference supports the sentence if they share a salient NUMBER, or
-                # at least two identifiers (one shared word is too weak).
-                if (s_nums & r_nums) or len(s_idents & r_idents) >= 2:
-                    hits.append(idx)
+                # at least two identifiers (one shared word is too weak). Score by overlap
+                # strength so that when many match (the over-generation case), we keep only
+                # the STRONGEST few rather than blurting [1]..[40] onto one sentence.
+                num_overlap = len(s_nums & r_nums)
+                id_overlap = len(s_idents & r_idents)
+                if num_overlap or id_overlap >= 2:
+                    # numbers are far more distinctive than shared words -> weight them
+                    scored.append((num_overlap * 10 + id_overlap, idx))
+            scored.sort(reverse=True)
+            hits = [idx for _, idx in scored[:_MAX_CITES_PER_SENTENCE]]
             if hits:
                 # Bracketed markers like [1][2][17] — readable even when several stack on
                 # one sentence (unicode superscripts ran together into an unreadable blur).

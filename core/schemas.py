@@ -5,7 +5,7 @@ from typing import Any, Literal, Optional
 # ---- API request models (appear in Swagger) ----
 class RunRequest(BaseModel):
     agent: str = "team"             # "team" = run agents in parallel; or a single agent name
-    message: str
+    message: str = ""               # the user's turn; empty for /continue (resume, no new input)
     history: list[dict] = []
     chat_id: Optional[str] = None   # set it to keep a stateful, resumable session
     agents: Optional[list[str]] = None      # team mode: which agents to run in parallel
