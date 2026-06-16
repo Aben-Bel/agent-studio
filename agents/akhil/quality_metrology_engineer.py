@@ -18,6 +18,7 @@ from core.declare import agent
         "correlate_params_vs_yield",
         "check_spec_limits",
         "run_full_spec_review",
+        "spc_check",
         "search_docs",
         "ask_human",
     ],

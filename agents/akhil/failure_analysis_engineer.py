@@ -17,9 +17,10 @@ from core.declare import agent
         "yield_persona_support",
         "search_fmea",
         "search_docs",
-        "find_similar_cases",
+        "search_similar_cases",
         "query_data",
         "ask_human",
+
     ],
 )
 def failure_analysis_engineer(ctx):

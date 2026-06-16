@@ -18,6 +18,8 @@ from core.declare import agent
         "correlate_params_vs_yield",
         "compute_summary_stats",
         "detect_outliers",
+        "yield_trend",
+        "spc_check",
         "ask_human",
     ],
 )

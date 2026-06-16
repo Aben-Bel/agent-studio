@@ -14,6 +14,7 @@ from core.declare import agent
         "load_uploaded_csv",
         "yield_persona_support",
         "query_data",
+        "compare_process_steps",
         "summarize_defect_distribution",
         "analyze_defect_patterns",
         "get_wafer_map",
