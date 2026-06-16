@@ -20,6 +20,7 @@ from core.declare import agent
         "detect_outliers",
         "yield_trend",
         "spc_check",
+        "parameter_bin_analysis",
         "ask_human",
     ],
 )
