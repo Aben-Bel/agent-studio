@@ -767,7 +767,7 @@ button.ghost { background: transparent; }
   padding: 7px 10px; border-bottom: 1px solid var(--line); align-items: start; }
 .fr-row:last-child { border-bottom: none; }
 .fr-key { font-weight: 600; color: var(--text-2); font-size: var(--fs-sm); }
-.fr-field { font-size: var(--fs-sm); min-width: 0; word-break: break-word; }
+.fr-field { font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere; }
 .fr-val { color: var(--text); }
 .fr-empty { color: var(--muted); }
 .fr-bool { font-weight: 600; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-2xs); }
@@ -855,11 +855,17 @@ button.ghost { background: transparent; }
   max-height: 260px; overflow: auto; color: var(--text-2); font-family: ui-monospace, Menlo, monospace;
 }
 .ev.nested { border-left: 2px solid var(--accent-line); padding-left: 6px; }
-/* friendly result inside the narrow trace panel: tighter rows, smaller type */
+/* friendly result inside the narrow trace panel: STACK key above value so the value
+   column always gets the full (narrow) width. The side-by-side grid forced the value
+   into a sliver, and a long token like 'defect_inspection_engineer' then wrapped one
+   character per line. Stacking + break-anywhere fixes that squash. */
 .evdetail-wrap { margin: 2px 0 var(--sp-2); }
 .evdetail-wrap .fr-card { max-height: 260px; }
-.evdetail-wrap .fr-row { grid-template-columns: minmax(90px, 130px) 1fr; gap: 8px; padding: 5px 8px; }
+.evdetail-wrap .fr-row { display: block; padding: 5px 8px; }
+.evdetail-wrap .fr-key { display: block; margin-bottom: 1px; }
 .evdetail-wrap .fr-key, .evdetail-wrap .fr-field { font-size: var(--fs-2xs); }
+.evdetail-wrap .fr-field, .evdetail-wrap .fr-val { overflow-wrap: anywhere; word-break: normal; }
+.evdetail-wrap .fr-nested { padding-left: 6px; }
 .ev.agent_switch .tag { background: var(--accent); color: #fff; border-color: var(--accent); text-transform: capitalize; }
 .ev.error .tag { color: var(--err); border-color: var(--err-line); }
 .trace-full { max-height: none; }
