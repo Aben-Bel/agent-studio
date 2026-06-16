@@ -46,7 +46,7 @@ def parameter_bin_analysis(
         return f"No rows in '{table}'."
 
     df = pd.DataFrame(rows, columns=cols)
-    df, scope_labels, serr = sc.apply_scope(df, scope)
+    df, scope_labels, serr, _resolved_scope = sc.apply_scope(df, scope)
     if serr:
         return f"Invalid scope: {serr}."
     if scope and not len(df):

@@ -62,7 +62,7 @@ def driver_within_scope(table="wafer_defects", outcome_col="", params="", scope=
                 "detail": {}}
     df = pd.DataFrame(rows, columns=cols)
 
-    df, scope_labels, serr = sc.apply_scope(df, scope)
+    df, scope_labels, serr, resolved_scope = sc.apply_scope(df, scope)
     if serr:
         return {"kind": sc.KIND_INCOMPATIBLE, "summary": f"Invalid scope: {serr}.",
                 "detail": {"reason": serr}}
@@ -79,5 +79,8 @@ def driver_within_scope(table="wafer_defects", outcome_col="", params="", scope=
     plist = [p.strip() for p in params.split(",") if p.strip()] or None
     res = sc.driver_scan(df, oc, params=plist, group_col=group_col or None)
     res["scope_labels"] = scope_labels
+    # Expose the RESOLVED scope (canonical real values) so the orchestrator records the
+    # same value the analysis ran on — not the agent's raw guess ('C' vs 'LOT_C').
     return {"kind": res["kind"], "outcome_col": oc, "scope": scope_labels,
-            "summary": sc.render_driver(res), "detail": res}
+            "summary": sc.render_driver(res), "detail": res,
+            "resolved_scope": resolved_scope}

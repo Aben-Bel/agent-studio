@@ -378,10 +378,15 @@ _TYPED_KINDS = {"finding", "no_significant_association", "insufficient_data",
                 "incompatible_data"}
 
 
-def _scope_filters(args):
-    """Normalize a tool's `scope` arg into a list of well-formed {column, values}
-    filters. Junk entries (bare strings from mocks/garbled calls, missing column)
-    are dropped, so every downstream consumer can assume dicts with a column."""
+def _scope_filters(args, result=None):
+    """Normalize a scope into a list of well-formed {column, values} filters. PREFERS
+    the tool result's `resolved_scope` (the column's REAL canonical values, e.g. 'C'
+    already mapped to 'LOT_C') so every downstream consumer compares the value the
+    analysis actually ran on — not the agent's raw guess. Falls back to the raw `args`
+    scope only when the tool didn't resolve one. Junk entries are dropped."""
+    if isinstance(result, dict) and result.get("resolved_scope"):
+        rs = result["resolved_scope"]
+        return [f for f in rs if isinstance(f, dict) and f.get("column")]
     scope = (args or {}).get("scope")
     if not scope:
         return []
@@ -416,7 +421,7 @@ def _typed_record(name, args, obj):
     if is_group_scan and kind == "finding":
         flagged_subgroups = [str(f.get("group")) for f in (detail.get("flagged") or [])
                              if isinstance(f, dict) and f.get("group") is not None]
-    return {"scope_filters": _scope_filters(args),
+    return {"scope_filters": _scope_filters(args, obj),   # canonical resolved values
             "table": (args or {}).get("table") or detail.get("table") or "",
             "target": target, "kind": kind, "tool": name,
             "is_group_scan": is_group_scan, "sub_col": sub_col,
@@ -1111,12 +1116,14 @@ def _null_drill_incomplete(target_records, axis):
     driver test still pending. Returns the list of flagged-but-undrilled sub-group
     names (empty => no gap). Schema-agnostic: uses the grouping column the scan
     itself reported."""
-    flagged = {}          # sub_col -> set(flagged sub-group values)
-    drilled = set()       # (sub_col, value) pairs a driver record covered
+    from tools.rca.stats_core import _norm_token   # same normaliser apply_scope uses
+    flagged = {}          # sub_col -> {normalised value -> display value}
+    drilled = set()       # (sub_col, normalised value) pairs a driver record covered
     for r in target_records:
         if r.get("is_group_scan") and r.get("flagged_subgroups"):
             sc = r.get("sub_col") or "?"
-            flagged.setdefault(sc, set()).update(r["flagged_subgroups"])
+            for v in r["flagged_subgroups"]:
+                flagged.setdefault(sc, {}).setdefault(_norm_token(v), str(v))
         if r.get("tool") == "driver_within_scope":
             for f in r.get("scope_filters") or []:
                 c = f.get("column")
@@ -1125,12 +1132,15 @@ def _null_drill_incomplete(target_records, axis):
                 vals = f.get("values")
                 vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
                 for v in vals:
-                    drilled.add((c, str(v)))
+                    drilled.add((c, _norm_token(v)))   # NORMALISED — 'CMP' == 'cmp'
+    # A flagged sub-group counts as drilled if a driver record covered the SAME column
+    # and a NORMALISED-equal value, so a format difference can never make a completed
+    # drill look missing (the bug that re-opened settled C/D on "check again").
     undrilled = []
-    for sc, vals in flagged.items():
-        for v in vals:
-            if (sc, v) not in drilled:
-                undrilled.append(f"{sc}={v}")
+    for sc, vmap in flagged.items():
+        for nv, display in vmap.items():
+            if (sc, nv) not in drilled:
+                undrilled.append(f"{sc}={display}")
     return undrilled
 
 

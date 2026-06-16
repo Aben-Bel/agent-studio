@@ -59,8 +59,9 @@ def correlate_params_vs_yield(table="wafer_defects", group_col="", outcome_col="
                 "detail": {}}
     df = pd.DataFrame(rows, columns=cols)
 
-    # Optional row scope (validated column+values; injection-safe).
-    df, scope_labels, serr = sc.apply_scope(df, scope)
+    # Optional row scope (validated column+values; injection-safe). `resolved_scope` holds
+    # the column's REAL canonical values (e.g. 'C' -> 'LOT_C') so downstream records match.
+    df, scope_labels, serr, resolved_scope = sc.apply_scope(df, scope)
     if serr:
         return {"kind": sc.KIND_INCOMPATIBLE, "summary": f"Invalid scope: {serr}.",
                 "detail": {"reason": serr}}
@@ -81,4 +82,5 @@ def correlate_params_vs_yield(table="wafer_defects", group_col="", outcome_col="
 
     res = sc.group_vs_rest_scan(df, gc, oc)
     return {"kind": res["kind"], "group_col": gc, "outcome_col": oc,
-            "summary": sc.render_scan(res), "detail": res}
+            "summary": sc.render_scan(res), "detail": res,
+            "resolved_scope": resolved_scope}

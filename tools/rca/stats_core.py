@@ -245,7 +245,7 @@ def _resolve_value(col_values, wanted_raw):
     return cands[0] if len(cands) == 1 else None
 
 
-def apply_scope(df: pd.DataFrame, scope) -> tuple[pd.DataFrame, list[str], str | None]:
+def apply_scope(df: pd.DataFrame, scope):
     """Restrict `df` to rows matching a structured scope, injection-safe.
 
     `scope` is one filter `{"column": str, "values": [...]}` or a LIST of such filters
@@ -254,23 +254,28 @@ def apply_scope(df: pd.DataFrame, scope) -> tuple[pd.DataFrame, list[str], str |
     unambiguous substring), so a request for 'A', 'LOT_A', 'lot a', or 'Lot-A' all hit
     the actual value whatever its stored format. If a value cannot be resolved, the error
     LISTS the real available values so the caller can self-correct instead of guessing.
-    No value or format is ever hardcoded. Returns (filtered_df, labels, error).
+    No value or format is ever hardcoded.
+
+    Returns (filtered_df, labels, error, resolved_filters) where `resolved_filters` is the
+    scope rewritten with the column's REAL canonical values — this is the single source of
+    truth every downstream consumer (typed records, drill-completeness, dedup) must record
+    and compare against, so a raw 'C' and a real 'LOT_C' never disagree across the system.
     """
     if not scope:
-        return df, [], None
+        return df, [], None, []
     filters = scope if isinstance(scope, list) else [scope]
     out = df
-    labels = []
+    labels, resolved_filters = [], []
     for f in filters:
         if not isinstance(f, dict):
-            return df, [], f"invalid scope entry (expected {{column, values}}): {f!r}"
+            return df, [], f"invalid scope entry (expected {{column, values}}): {f!r}", []
         col = f.get("column")
         vals = f.get("values")
         if not col or col not in df.columns:
             return df, [], (f"scope column '{col}' not found; available columns: "
-                            f"{', '.join(map(str, df.columns))}")
+                            f"{', '.join(map(str, df.columns))}"), []
         if vals is None:
-            return df, [], f"scope for '{col}' has no values"
+            return df, [], f"scope for '{col}' has no values", []
         vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
         col_values = out[col].astype(str).tolist()
         resolved, unresolved = [], []
@@ -282,11 +287,12 @@ def apply_scope(df: pd.DataFrame, scope) -> tuple[pd.DataFrame, list[str], str |
             shown = ", ".join(map(str, available[:20])) + (" …" if len(available) > 20 else "")
             return df, [], (f"scope value(s) {unresolved} not found in '{col}'. "
                             f"Real values in '{col}': {shown}. "
-                            "Use one of these exact values (do not guess the format).")
+                            "Use one of these exact values (do not guess the format)."), []
         mask = out[col].astype(str).isin(set(resolved))
         out = out[mask]
         labels.append(f"{col}={'|'.join(map(str, resolved))}")
-    return out, labels, None
+        resolved_filters.append({"column": col, "values": list(resolved)})
+    return out, labels, None, resolved_filters
 
 
 # --------------------------------------------------------------------------- #
