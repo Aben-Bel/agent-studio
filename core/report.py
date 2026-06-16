@@ -103,6 +103,15 @@ _NON_EVIDENCE_TOOLS = {"ask_human", "list_data_sources", "load_uploaded_csv",
                        "prepare_download", "yield_persona_support"}
 
 
+def _is_evidence(tool):
+    """A call counts as EVIDENCE only if it produced real data from a tool/query.
+    Excludes the platform plumbing above AND any '*_guidance' skill: those return a
+    persona/steering PROMPT (no data, no analysis), so showing them as a 'source'
+    dresses up the agent's own instructions as verifiable evidence - misleading."""
+    t = tool or ""
+    return t not in _NON_EVIDENCE_TOOLS and not t.endswith("_guidance")
+
+
 def turn_references(chat_id):
     """The citable evidence for the LATEST concluded turn, shaped for the UI's
     reference modal. Each reference is what a normal user needs to verify a claim:
@@ -117,7 +126,7 @@ def turn_references(chat_id):
     refs = []
     seen = set()
     for e in evidence:
-        if e.get("tool") in _NON_EVIDENCE_TOOLS:
+        if not _is_evidence(e.get("tool")):
             continue
         result = (e.get("result") or "").strip()
         if not result:
