@@ -11,6 +11,8 @@ class RunRequest(BaseModel):
     agents: Optional[list[str]] = None      # team mode: which agents to run in parallel
     allow_tools: Optional[list[str]] = None  # restrict which tools/skills agents may use
     sources: Optional[list[str]] = None      # restrict which data sources to use
+    lang: str = "en"                # UI language ("en"/"de"); the OTHER language is
+                                    # auto-translated so each message carries {en, de}
 
 
 class CreateAgentRequest(BaseModel):

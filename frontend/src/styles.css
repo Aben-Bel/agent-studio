@@ -128,7 +128,6 @@ body {
 :root[data-theme="dark"] .card,
 :root[data-theme="dark"] .stat,
 :root[data-theme="dark"] .agentcard,
-:root[data-theme="dark"] .setup,
 :root[data-theme="dark"] .messages,
 :root[data-theme="dark"] .feed,
 :root[data-theme="dark"] .modal,
@@ -138,11 +137,24 @@ body {
   background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.035)) !important;
   border-color: var(--line) !important; box-shadow: var(--sh-md); backdrop-filter: blur(22px) saturate(1.15);
 }
+/* .setup is the left layout column, NOT a card: no background/frame of its own,
+   only the border-right divider. Otherwise it draws a box around the inner
+   .setup-list boxes (doubled border). */
+:root[data-theme="dark"] .setup {
+  background: transparent !important; box-shadow: none; backdrop-filter: none;
+}
 :root[data-theme="dark"] .card,
 :root[data-theme="dark"] .stat,
-:root[data-theme="dark"] .setup,
 :root[data-theme="dark"] .messages,
 :root[data-theme="dark"] .feed { border-radius: var(--r-lg); }
+/* The agents / data-sources lists were inheriting the translucent glass
+   gradient above, so their border read as a pale washed-out outline over the
+   blurred panel. Give them a solid darker fill and a crisp, even border. */
+:root[data-theme="dark"] .setup-list {
+  background: rgba(8, 13, 24, 0.55) !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: none; backdrop-filter: none;
+}
 :root[data-theme="dark"] .stat { padding: 24px; transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease; }
 :root[data-theme="dark"] .stat::before { background: radial-gradient(circle at top right, rgba(0,229,255,0.18), transparent 38%); }
 :root[data-theme="dark"] .stat:hover,
@@ -163,6 +175,15 @@ body {
   color: #031018; font-weight: 900; box-shadow: 0 0 30px rgba(0,229,255,0.24);
 }
 :root[data-theme="dark"] button.primary:hover { color: #031018; transform: translateY(-2px); }
+/* Setup-list rows are borderless link-buttons, not framed pills. The generic
+   dark `button` rule above would give each one a box + border — undo that. */
+:root[data-theme="dark"] .srclink {
+  background: none; border: none; box-shadow: none; border-radius: 5px;
+}
+:root[data-theme="dark"] .srclink:hover {
+  background: var(--accent-weak); border-color: transparent;
+  color: var(--accent-deep); box-shadow: none;
+}
 :root[data-theme="dark"] .langtoggle { border-radius: 999px; background: rgba(255,255,255,0.06); }
 :root[data-theme="dark"] .langtoggle button.on { background: var(--accent); color: #031018; }
 :root[data-theme="dark"] .themetoggle { background: rgba(255,255,255,0.065); }
@@ -187,11 +208,15 @@ body {
   color: #031018; font-weight: 650; box-shadow: 0 12px 34px rgba(0,229,255,0.18);
 }
 :root[data-theme="dark"] .msg.assistant { background: rgba(255,255,255,0.08) !important; color: var(--text); }
+/* Small inline chips are pills; the starter-chip is a multi-line card and must
+   NOT be force-rounded to 999px (that produces giant lozenge blobs). */
 :root[data-theme="dark"] .suggestions button,
 :root[data-theme="dark"] .suggestion-chip,
-:root[data-theme="dark"] .starter-chip,
 :root[data-theme="dark"] .chip {
   border-radius: 999px; background: rgba(255,255,255,0.055); border-color: var(--line); color: var(--text-2);
+}
+:root[data-theme="dark"] .starter-chip {
+  border-radius: var(--r-md); background: rgba(255,255,255,0.055); border-color: var(--line); color: var(--text-2);
 }
 :root[data-theme="dark"] .suggestions button:hover,
 :root[data-theme="dark"] .suggestion-chip:hover,
@@ -390,13 +415,13 @@ button.ghost { background: transparent; }
 .setup-list {
   flex: 0 1 auto; min-height: 0; overflow-y: auto;
   border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--surface-2); padding: 6px var(--sp-2);
+  background: var(--surface-2); padding: var(--sp-2) var(--sp-3);
 }
 .setup-list::-webkit-scrollbar { width: 9px; }
 .setup-list::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 5px; border: 2px solid var(--surface-2); }
 .setup-list::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .mini { font-size: var(--fs-2xs); padding: 3px 9px; border-radius: 6px; }
-.check { display: flex; align-items: center; gap: 7px; padding: 4px 0; font-size: var(--fs-sm); cursor: pointer; margin: 0; color: var(--text); }
+.check { display: flex; align-items: center; gap: 7px; padding: 5px 0; font-size: var(--fs-sm); cursor: pointer; margin: 0; color: var(--text); }
 .check input { width: auto; }
 .check span { line-height: var(--lh-tight); }
 .addsrc { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--sp-2); margin-bottom: var(--sp-2); }
@@ -608,7 +633,7 @@ button.ghost { background: transparent; }
 .updismiss:hover { background: rgba(0,0,0,0.07); color: var(--err); }
 
 /* ---- clickable data source ---- */
-.srcrow { display: flex; align-items: center; gap: 7px; padding: 4px 0; }
+.srcrow { display: flex; align-items: center; gap: 7px; padding: 5px 0; }
 .srcrow input[type="checkbox"] { width: auto; flex: 0 0 auto; }
 .srclink { flex: 1; text-align: left; background: none; border: none; padding: 3px 5px; cursor: pointer; font-size: var(--fs-sm); color: var(--text); border-radius: 5px; }
 .srclink:hover { background: var(--accent-weak); color: var(--accent-deep); }
@@ -742,7 +767,11 @@ button.ghost { background: transparent; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; background: var(--accent-weak); border-bottom: 1px solid var(--line);
 }
-.lane-name { font-weight: 700; font-size: var(--fs-sm); color: var(--accent-deep); }
+.lane-head.click { cursor: pointer; user-select: none; }
+.lane-head.click:hover { filter: brightness(0.97); }
+.lane.collapsed .lane-head { border-bottom: none; }
+.lane-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: var(--fs-sm); color: var(--accent-deep); }
+.lane-caret { font-size: var(--fs-2xs); color: var(--muted); }
 .lane-status { font-size: var(--fs-2xs); border-radius: var(--r-pill); padding: 2px 9px; font-weight: 600; }
 .lane-status.working { background: var(--warn-bg); color: var(--warn); }
 .lane-status.done { background: var(--accent-weak); color: var(--accent-deep); }

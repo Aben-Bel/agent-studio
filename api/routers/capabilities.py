@@ -21,9 +21,11 @@ def capabilities():
 
 
 @router.get("/suggest")
-def suggest():
-    """A few data-aware starter questions so the user is not staring at a blank box."""
-    return {"questions": orchestrator.suggest_questions()}
+def suggest(lang: str = "en"):
+    """A few data-aware starter questions so the user is not staring at a blank box.
+    `lang` (URL-derived, untrusted) selects the question language; anything other
+    than a known code falls back to English defaults inside suggest_questions."""
+    return {"questions": orchestrator.suggest_questions(lang=lang)}
 
 
 @router.get("/runs")

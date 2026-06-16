@@ -1,5 +1,14 @@
 import React, { useState } from "react";
 import { prettyName } from "../format.js";
+import { useI18n } from "../i18n.jsx";
+
+// Read a text field in the active language. The backend pairs every prose field
+// X into X_i18n = {en, de}; we prefer that, falling back to the raw field (older
+// events / not-yet-paired). This is what makes the whole trace flip on a toggle.
+export function tx(d, field, lang) {
+  const m = d && d[field + "_i18n"];
+  return (m && (m[lang] || m.en)) || (d ? d[field] : "") || "";
+}
 
 // Group the flat event stream into per-agent LANES so a parallel investigation
 // is readable: the orchestrator's dispatch/conclusion on top, then one card per
@@ -27,23 +36,31 @@ function Lane({ name, lead, events }) {
   const errored = events.some((e) => e.type === "error");
   const done = events.some((e) => e.type === "final");
   const status = errored ? "error" : done ? "done" : "working";
+  // Each agent lane is an accordion: lead stays open, recruited agents start
+  // collapsed so a parallel investigation reads as a tidy list you can unfold.
+  const [open, setOpen] = useState(lead);
   return (
-    <div className={"lane" + (lead ? " lead" : "") + " " + status}>
-      <div className="lane-head">
-        <span className="lane-name">{prettyName(name)}</span>
+    <div className={"lane" + (lead ? " lead" : "") + " " + status + (open ? "" : " collapsed")}>
+      <div className="lane-head click" onClick={() => setOpen(!open)}>
+        <span className="lane-name">
+          <span className="lane-caret">{open ? "▾" : "▸"}</span>
+          {prettyName(name)}
+        </span>
         <span className={"lane-status " + status}>{status === "working" ? "working..." : status}</span>
       </div>
-      {dispatched && (
+      {open && dispatched && (
         <div className="lane-dispatch">
           routed to {(dispatched.data.agents || []).map(prettyName).join(", ") || "(none)"}
           {(dispatched.data.skipped || []).length > 0 &&
             <span className="muted"> - skipped {(dispatched.data.skipped || []).map(prettyName).join(", ")} (not needed)</span>}
         </div>
       )}
-      <div className="lane-steps">
-        {steps.length === 0 && <div className="muted small">-</div>}
-        {steps.map((e, i) => <TraceEvent key={i} ev={e} />)}
-      </div>
+      {open && (
+        <div className="lane-steps">
+          {steps.length === 0 && <div className="muted small">-</div>}
+          {steps.map((e, i) => <TraceEvent key={i} ev={e} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -51,6 +68,7 @@ function Lane({ name, lead, events }) {
 // One step in the orchestrator trace. Click to expand full args / result - this
 // is the transparency surface. Recruited-agent steps are indented (depth).
 export default function TraceEvent({ ev }) {
+  const { lang } = useI18n();
   const [open, setOpen] = useState(false);
   const d = ev.data || {};
   const depth = d.depth || 0;
@@ -60,11 +78,11 @@ export default function TraceEvent({ ev }) {
   if (ev.type === "agent_switch") {
     head = d.role === "recruited" ? `recruited ${prettyName(d.agent)}`
       : d.role === "resumed" ? `back to ${prettyName(d.agent)}` : `lead ${prettyName(d.agent)}`;
-  } else if (ev.type === "progress") head = d.message;
-  else if (ev.type === "thinking") head = (d.text || "").replace(/\s+/g, " ").slice(0, 80);
+  } else if (ev.type === "progress") head = tx(d, "message", lang);
+  else if (ev.type === "thinking") head = tx(d, "text", lang).replace(/\s+/g, " ").slice(0, 80);
   else if (ev.type === "tool_call") head = d.kind === "agent" ? `recruit ${prettyName((d.args || {}).agent || "")}` : d.name;
   else if (ev.type === "tool_result") head = `${d.name}`;
-  else if (ev.type === "user_message") head = d.text;
+  else if (ev.type === "user_message") head = tx(d, "text", lang);
   else if (ev.type === "needs_human") head = "needs human";
   else if (ev.type === "context_added") head = "context added";
   else if (ev.type === "final") head = depth ? "specialist done" : "conclusion";
@@ -80,22 +98,22 @@ export default function TraceEvent({ ev }) {
         {ev.ts && <span className="muted small evts">{(ev.ts || "").slice(11, 19)}</span>}
         {expandable && <span className="caret">{open ? "-" : "+"}</span>}
       </div>
-      {open && <pre className="evdetail">{detail(ev)}</pre>}
+      {open && <pre className="evdetail">{detail(ev, lang)}</pre>}
     </div>
   );
 }
 
-function detail(ev) {
+function detail(ev, lang) {
   const d = ev.data || {};
   switch (ev.type) {
-    case "thinking": return d.text || "";
+    case "thinking": return tx(d, "text", lang);
     case "tool_call": return "arguments:\n" + JSON.stringify(d.args || {}, null, 2);
-    case "tool_result": return "result:\n" + (d.result ?? "");
-    case "final": return d.message || "";
-    case "user_message": return d.text || "";
-    case "needs_human": return d.question || "";
-    case "context_added": return d.text || "";
-    case "error": return d.message || "";
+    case "tool_result": return "result:\n" + (tx(d, "result", lang) ?? "");
+    case "final": return tx(d, "message", lang);
+    case "user_message": return tx(d, "text", lang);
+    case "needs_human": return tx(d, "question", lang);
+    case "context_added": return tx(d, "text", lang);
+    case "error": return tx(d, "message", lang);
     default: return "";
   }
 }
