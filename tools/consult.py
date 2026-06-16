@@ -17,8 +17,8 @@ class ConsultArgs(BaseModel):
 
 @tool("consult_agent",
       "Recruit another specialist agent to handle a sub-task and return its findings. "
-      "Persona specialists: statistical_analyst, quality_metrology_engineer, "
-      "defect_inspection_engineer, failure_analysis_engineer. "
+      "Persona specialists: yield_statistician, metrology_analyst, "
+      "defect_profiler, rca_engineer. "
       "Supporting: data_analyst, manuals_expert, equipment_specialist.",
       ConsultArgs, owner="orchestration", tags=["multi-agent"])
 def consult_agent(agent, task):

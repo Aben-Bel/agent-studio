@@ -6,7 +6,7 @@ from core.declare import agent
 
 
 @agent(
-    name="defect_inspection_engineer",
+    name="defect_profiler",
     description="Profiles defect type, density, and wafer-zone patterns to identify "
                 "which lots, process steps, or zones are driving yield loss.",
     tools=[

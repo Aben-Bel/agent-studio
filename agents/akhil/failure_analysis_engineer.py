@@ -7,7 +7,7 @@ from core.declare import agent
 
 
 @agent(
-    name="failure_analysis_engineer",
+    name="rca_engineer",
     description="Maps defect symptoms to known failure mechanisms using FMEA knowledge, "
                 "manuals, and historical RCA cases. Explains WHY a defect occurs, not "
                 "just that it does.",

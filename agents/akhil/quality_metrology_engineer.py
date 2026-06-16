@@ -6,7 +6,7 @@ from core.declare import agent
 
 
 @agent(
-    name="quality_metrology_engineer",
+    name="metrology_analyst",
     description="Reviews measurement data, spec/control limits, inspection results, "
                 "and quality flags to identify out-of-spec process steps and "
                 "measurement-driven yield loss.",

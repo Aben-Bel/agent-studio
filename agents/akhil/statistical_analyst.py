@@ -7,7 +7,7 @@ from core.declare import agent
 
 
 @agent(
-    name="statistical_analyst",
+    name="yield_statistician",
     description="Runs correlations, outlier detection, and descriptive statistics to "
                 "quantify which parameters drive defects and flag anomalous data points.",
     tools=[
