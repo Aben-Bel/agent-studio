@@ -309,7 +309,6 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   return (
     <div className="card chat-wrap">
       <div className="chat-head">
-        {onBack && <button onClick={onBack}>← {t("overview")}</button>}
         <button className="mini" onClick={() => setSetupOpen((v) => !v)}>{setupOpen ? t("hideSetup") : t("setup")}</button>
         <span className="muted" title={"chat " + chatId}>{t("investigate")} · {agents.length} {t("agents")}</span>
         {busy && <button className="stopbtn" onClick={stop}>{t("stop")}</button>}
@@ -425,12 +424,18 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                 <h2>{t("startInvestigation")}</h2>
                 <p>{t("describePrompt")}</p>
                 {(suggLoading || freshSuggestions.length > 0) && (
-                  <div className="starter-grid">
-                    {suggLoading
-                      ? <span className="spin" title={t("loading")} />
-                      : freshSuggestions.map((q, i) => (
-                          <button key={i} className="starter-chip" onClick={() => askSuggestion(q)} title={q}>{q}</button>
-                        ))}
+                  <div className="starter-zone">
+                    <div className="starter-label">{t("tryAsking")}</div>
+                    <div className="starter-grid">
+                      {suggLoading
+                        ? <span className="spin" title={t("loading")} />
+                        : freshSuggestions.map((q, i) => (
+                            <button key={i} className="starter-chip" onClick={() => askSuggestion(q)} title={q}>
+                              <span className="starter-chip-kicker">Ask AI</span>
+                              <span>{q}</span>
+                            </button>
+                          ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -456,7 +461,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             {busy && <div className="statusline"><span className="spin" /> {status || "working..."}</div>}
           </div>
           {messages.length > 0 && !busy && !awaiting && (suggLoading || freshSuggestions.length > 0) && (
-            <div className="suggestions">
+            <div className="suggestions followup-zone">
               <span className="muted small sugg-label">{t("tryAsking")}</span>
               {suggLoading
                 ? <span className="spin" title={t("loading")} />
