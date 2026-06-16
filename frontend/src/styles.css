@@ -84,14 +84,134 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+/* ============================================================================
+   DARK THEME — the prototype's premium dark design, scoped to the toggle.
+   Dark color tokens are in :root[data-theme="dark"] above; these are her
+   component-level dark overrides, prefixed so they ONLY apply in dark mode.
+   ========================================================================== */
+@keyframes appFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes messageIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
 :root[data-theme="dark"] body {
   background:
-    radial-gradient(circle at 0% 0%, rgba(0, 229, 255, 0.18), transparent 30%),
-    radial-gradient(circle at 100% 18%, rgba(124, 97, 255, 0.18), transparent 32%),
-    radial-gradient(circle at 70% 100%, rgba(0, 255, 190, 0.10), transparent 30%),
-    linear-gradient(140deg, #050812 0%, #070b18 50%, #04060f 100%);
+    radial-gradient(circle at 0% 0%, rgba(0,229,255,0.20), transparent 30%),
+    radial-gradient(circle at 100% 18%, rgba(124,97,255,0.20), transparent 32%),
+    radial-gradient(circle at 70% 100%, rgba(0,255,190,0.12), transparent 30%),
+    linear-gradient(135deg, #050812 0%, #07111e 48%, #03050b 100%) !important;
   background-attachment: fixed;
+  color: var(--text);
 }
+:root[data-theme="dark"] .app { animation: appFade 0.45s ease both; }
+:root[data-theme="dark"] header {
+  padding: 18px 20px; border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.035));
+  border: 1px solid var(--line); box-shadow: var(--sh-md); backdrop-filter: blur(22px) saturate(1.2);
+}
+:root[data-theme="dark"] .brand h1 {
+  font-size: 28px; background: linear-gradient(90deg, #fff, #9ef7ff, #b9b1ff);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+:root[data-theme="dark"] .brand::before {
+  content: "YA"; display: inline-grid; place-items: center; width: 38px; height: 38px;
+  margin-right: 10px; border-radius: 14px; background: linear-gradient(135deg, var(--accent), #7cffd2);
+  color: #031018; font-weight: 900; box-shadow: 0 0 32px rgba(0,229,255,0.28); vertical-align: middle;
+}
+:root[data-theme="dark"] .tabs {
+  padding: 6px; width: fit-content; border-radius: 999px;
+  background: rgba(255,255,255,0.055); border: 1px solid var(--line); backdrop-filter: blur(18px);
+}
+:root[data-theme="dark"] .pill { background: transparent; border-color: transparent; color: var(--muted); box-shadow: none; }
+:root[data-theme="dark"] .pill.on {
+  background: linear-gradient(135deg, rgba(0,229,255,0.20), rgba(124,255,210,0.12));
+  border-color: var(--accent-line); color: #ffffff; box-shadow: 0 0 28px rgba(0,229,255,0.14);
+}
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .stat,
+:root[data-theme="dark"] .agentcard,
+:root[data-theme="dark"] .setup,
+:root[data-theme="dark"] .messages,
+:root[data-theme="dark"] .feed,
+:root[data-theme="dark"] .modal,
+:root[data-theme="dark"] .lane,
+:root[data-theme="dark"] .setup-list,
+:root[data-theme="dark"] .addsrc {
+  background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.035)) !important;
+  border-color: var(--line) !important; box-shadow: var(--sh-md); backdrop-filter: blur(22px) saturate(1.15);
+}
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .stat,
+:root[data-theme="dark"] .setup,
+:root[data-theme="dark"] .messages,
+:root[data-theme="dark"] .feed { border-radius: 26px; }
+:root[data-theme="dark"] .stat { padding: 24px; transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease; }
+:root[data-theme="dark"] .stat::before { background: radial-gradient(circle at top right, rgba(0,229,255,0.18), transparent 38%); }
+:root[data-theme="dark"] .stat:hover,
+:root[data-theme="dark"] .agentcard:hover,
+:root[data-theme="dark"] .card:hover {
+  transform: translateY(-3px); border-color: var(--accent-line) !important;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.42), 0 0 34px rgba(0,229,255,0.08);
+}
+:root[data-theme="dark"] .stat-value { font-size: 38px; color: var(--accent-deep); text-shadow: 0 0 20px rgba(0,229,255,0.22); }
+:root[data-theme="dark"] .dash-cta {
+  background: linear-gradient(135deg, rgba(0,229,255,0.11), rgba(255,255,255,0.035)) !important;
+  border-color: var(--accent-line) !important;
+}
+:root[data-theme="dark"] button { border-radius: 14px; color: var(--text); background: rgba(255,255,255,0.065); border-color: var(--line); }
+:root[data-theme="dark"] button:hover { color: #ffffff; border-color: var(--accent); box-shadow: 0 0 24px rgba(0,229,255,0.16); }
+:root[data-theme="dark"] button.primary {
+  border-radius: 999px; background: linear-gradient(135deg, var(--accent), #7cffd2);
+  color: #031018; font-weight: 900; box-shadow: 0 0 30px rgba(0,229,255,0.24);
+}
+:root[data-theme="dark"] button.primary:hover { color: #031018; transform: translateY(-2px); }
+:root[data-theme="dark"] .langtoggle { border-radius: 999px; background: rgba(255,255,255,0.06); }
+:root[data-theme="dark"] .langtoggle button.on { background: var(--accent); color: #031018; }
+:root[data-theme="dark"] .themetoggle { background: rgba(255,255,255,0.065); }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea { background: rgba(3,8,18,0.72); color: var(--text); border-color: var(--line); border-radius: 16px; }
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] textarea:focus { background: rgba(3,8,18,0.88); border-color: var(--accent); box-shadow: var(--ring); }
+:root[data-theme="dark"] .agentcard.team-card {
+  background: linear-gradient(135deg, rgba(0,229,255,0.14), rgba(124,255,210,0.08)) !important;
+  border-color: var(--accent-line) !important;
+}
+:root[data-theme="dark"] .agentcard-name,
+:root[data-theme="dark"] .stat-label,
+:root[data-theme="dark"] .lane-name,
+:root[data-theme="dark"] .sources-title { color: var(--text); }
+:root[data-theme="dark"] .agentcard-desc,
+:root[data-theme="dark"] .stat-sub,
+:root[data-theme="dark"] .src-tables { color: var(--muted); }
+:root[data-theme="dark"] .msg { border-radius: 20px; animation: messageIn 0.22s ease both; }
+:root[data-theme="dark"] .msg.user {
+  background: linear-gradient(135deg, rgba(0,229,255,0.95), rgba(124,255,210,0.88));
+  color: #031018; font-weight: 650; box-shadow: 0 12px 34px rgba(0,229,255,0.18);
+}
+:root[data-theme="dark"] .msg.assistant { background: rgba(255,255,255,0.08) !important; color: var(--text); }
+:root[data-theme="dark"] .suggestions button,
+:root[data-theme="dark"] .suggestion-chip,
+:root[data-theme="dark"] .starter-chip,
+:root[data-theme="dark"] .chip {
+  border-radius: 999px; background: rgba(255,255,255,0.055); border-color: var(--line); color: var(--text-2);
+}
+:root[data-theme="dark"] .suggestions button:hover,
+:root[data-theme="dark"] .suggestion-chip:hover,
+:root[data-theme="dark"] .starter-chip:hover,
+:root[data-theme="dark"] .chip:hover,
+:root[data-theme="dark"] .chip.on { background: var(--accent-weak); color: #ffffff; border-color: var(--accent-line); }
+:root[data-theme="dark"] .ev .tag,
+:root[data-theme="dark"] .lane-status { background: rgba(255,255,255,0.07); border-color: var(--line); color: var(--muted); }
+:root[data-theme="dark"] .ev.final .tag,
+:root[data-theme="dark"] .lane-status.done { background: rgba(124,255,210,0.12); border-color: rgba(124,255,210,0.34); color: #9fffe5; }
+:root[data-theme="dark"] .ev.error .tag,
+:root[data-theme="dark"] .lane-status.error { background: var(--err-bg); border-color: var(--err-line); color: var(--err); }
+:root[data-theme="dark"] .drop,
+:root[data-theme="dark"] .filebtn {
+  border-radius: 22px; background: linear-gradient(180deg, rgba(0,229,255,0.075), rgba(255,255,255,0.035)); border-color: var(--accent-line);
+}
+:root[data-theme="dark"] .drop:hover,
+:root[data-theme="dark"] .filebtn:hover { background: rgba(0,229,255,0.11); box-shadow: inset 0 0 44px rgba(0,229,255,0.08); }
+:root[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,0.62); backdrop-filter: blur(14px); }
+:root[data-theme="dark"] .modal { background: rgba(12,18,32,0.94) !important; }
 /* glass surfaces blur the mesh behind them (translucent --surface tokens) */
 .card, .stat, .agentcard, .feed, .setup-list, .modal, .dl-menu,
 .msg.assistant, .addsrc, .exportbar, .statusline, .artifact-card {
