@@ -12,20 +12,57 @@ function label(key) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// Tolerant parse: real JSON first, then a best-effort fix of Python-dict repr
-// (single quotes, True/False/None) into JSON. Returns the object/array or null.
+// Convert a Python-repr dump (single quotes, True/False/None, strings that may
+// contain \n, quotes, parentheses) into JSON by TOKENIZING - a char scanner that
+// understands quoted strings with escapes. A naive regex breaks the moment a
+// string value contains a backslash or newline (e.g. check_readiness' multi-line
+// summary), which is exactly why some results still showed raw. This handles them.
+function pyReprToJson(s) {
+  let out = "";
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s[i];
+    if (c === '"' || c === "'") {
+      // Read a quoted string (either quote style) and re-emit as a JSON string.
+      const quote = c;
+      i++;
+      let str = "";
+      while (i < n) {
+        const ch = s[i];
+        if (ch === "\\") {            // keep escape sequences intact
+          str += s[i] + (s[i + 1] ?? "");
+          i += 2;
+          continue;
+        }
+        if (ch === quote) { i++; break; }
+        str += ch;
+        i++;
+      }
+      // Escape for JSON: backslashes already preserved; quote the JSON-special chars.
+      const esc = str
+        .replace(/\\(?!["\\/bfnrtu])/g, "\\\\")   // lone backslashes -> escaped
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+      out += '"' + esc + '"';
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  // Python literals -> JSON literals (outside strings, which are now JSON-quoted).
+  return out
+    .replace(/\bTrue\b/g, "true").replace(/\bFalse\b/g, "false")
+    .replace(/\bNone\b/g, "null");
+}
+
+// Tolerant parse: real JSON first, then the tokenizing Python-repr converter.
+// Returns the object/array, or null when it isn't structured (plain text/table).
 function parseStructured(text) {
   const s = (text || "").trim();
   if (!s || (s[0] !== "{" && s[0] !== "[")) return null;
   try { return JSON.parse(s); } catch { /* fall through */ }
-  try {
-    // Python repr -> JSON: quotes, booleans, None. Good enough for tool dumps.
-    let j = s
-      .replace(/\bTrue\b/g, "true").replace(/\bFalse\b/g, "false").replace(/\bNone\b/g, "null");
-    // 'single quoted' -> "double quoted" (only when not inside a double-quoted span)
-    j = j.replace(/'([^'\\]*)'/g, (m, inner) => '"' + inner.replace(/"/g, '\\"') + '"');
-    return JSON.parse(j);
-  } catch { return null; }
+  try { return JSON.parse(pyReprToJson(s)); } catch { return null; }
 }
 
 const isScalar = (v) => v === null || ["string", "number", "boolean"].includes(typeof v);
