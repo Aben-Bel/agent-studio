@@ -192,23 +192,38 @@ def _tr(text, target_lang):
     return model.translate(text, target_lang)
 
 
-# Capability strings (descriptions/limits) are STATIC, so we translate each once
-# and cache the {en, de} pair forever. The catalog ships these pairs to every
-# client; the UI reads pair[lang] and switches language with ZERO refetch - same
-# pattern as chat messages. Keyed by source English text so new/edited tools pair
-# lazily on first serve.
-_CAPS_I18N_CACHE: dict = {}
+# Capability strings (descriptions/limits) are STATIC. Their German is PRE-GENERATED
+# once into core/caps_i18n_de.json (run: python -m scripts.gen_caps_i18n) and shipped
+# in the repo, so serving the catalog makes ZERO model calls - instant, reviewable,
+# and immune to the model "obeying" an imperative description instead of translating
+# it. Missing/new strings simply fall back to English until the script is re-run.
+_CAPS_DE: dict = {}
+
+
+def _load_caps_de():
+    global _CAPS_DE
+    if _CAPS_DE:
+        return _CAPS_DE
+    import json
+    import os
+    path = os.path.join(os.path.dirname(__file__), "caps_i18n_de.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            _CAPS_DE = json.load(f)
+    except Exception:
+        _CAPS_DE = {}
+    return _CAPS_DE
 
 
 def _pair_static(text):
-    """{en, de} for a fixed English capability string, cached. Offline (mock)
-    translate is a no-op, so both sides equal the source - safe and never blank."""
+    """{en, de} for a fixed English capability string. German comes from the
+    pre-generated static map; falls back to English if absent (new/edited string
+    not yet regenerated). NEVER calls the model - the catalog stays instant."""
     text = text or ""
     if not text.strip():
         return {"en": "", "de": ""}
-    if text not in _CAPS_I18N_CACHE:
-        _CAPS_I18N_CACHE[text] = {"en": text, "de": model.translate(text, "de")}
-    return _CAPS_I18N_CACHE[text]
+    de = _load_caps_de().get(text) or text
+    return {"en": text, "de": de}
 
 
 def capabilities():
@@ -488,6 +503,18 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
     _scope.set_scope(sess.get("sources"))
     try:
         for ev in _drive(sess):
+            # Tie each claim in the answer to the tool result that supports it (and keep
+            # only the cited evidence) BEFORE localisation, so the superscript markers are
+            # part of the {en,de} text pair and the references are verifiable per claim.
+            if ev.get("type") == "final" and not ev.get("data", {}).get("depth"):
+                try:
+                    from core.report import turn_references, cite_conclusion
+                    msg, refs = cite_conclusion(ev["data"].get("message", ""),
+                                                turn_references(chat_id))
+                    ev["data"]["message"] = msg
+                    ev["data"]["references"] = refs
+                except Exception:
+                    pass
             ev = _localize(ev, lang)
             runs.record(chat_id, ev)
             yield ev
@@ -732,9 +759,19 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
     else:
         synthesis = _synthesize(task, results, lang)
     history.append({"task": task, "synthesis": synthesis})
+    # Citable evidence for THIS turn: the exact tool calls + real results behind the
+    # answer. Each claim is tied to the specific result that supports it (deterministic
+    # token match), and only the references actually USED are kept — so the modal shows
+    # provenance for the words, not every tool that happened to run.
+    try:
+        from core.report import turn_references, cite_conclusion
+        synthesis, references = cite_conclusion(synthesis, turn_references(chat_id))
+    except Exception:
+        references = []
     runs.finish_run(chat_id, "done")
     yield emit({"type": "final",
-                "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True}})
+                "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True,
+                         "references": references}})
     try:
         # Feed the FULL conclusion (not a 400-char clip): the answer often names the exact
         # tables/columns the next question should reference (e.g. "wafer_defects has
