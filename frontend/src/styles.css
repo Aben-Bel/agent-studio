@@ -3,55 +3,99 @@
    Neutral base, green as the single action accent. Tokens first, then components.
    ========================================================================== */
 :root {
-  /* color — neutral base */
-  --bg: #f5f7f8;
-  --surface: #ffffff;
-  --card: #ffffff;            /* back-compat alias for --surface */
-  --surface-2: #f1f4f3;       /* insets: feed, list boxes */
-  --line: #e5e9e7;
-  --line-strong: #d4dbd7;
-  /* color — text (3-step hierarchy) */
-  --text: #15201b;
-  --text-2: #45524b;
-  --muted: #79857d;
-  /* color — accent (the one action color) */
-  --accent: #12a150;
-  --accent-deep: #0b7c3c;
-  --accent-weak: #e7f5ed;
-  --accent-line: #bfe2cd;
-  /* color — semantic */
-  --warn: #b06a12;  --warn-bg: #fdf3e2;  --warn-line: #ecd6a4;
-  --err: #c0392b;   --err-bg: #fdecea;   --err-line: #f0c3bc;
+  /* ---- LIGHT theme (default) — glass surfaces over a soft mesh ---- */
+  --bg: #eef4f6;
+  --surface: rgba(255, 255, 255, 0.86);
+  --card: rgba(255, 255, 255, 0.86);   /* back-compat alias for --surface */
+  --surface-2: rgba(244, 249, 248, 0.82);
+  --surface-3: rgba(255, 255, 255, 0.64);
+  --line: rgba(22, 42, 34, 0.10);
+  --line-strong: rgba(22, 42, 34, 0.18);
+  --text: #122019;
+  --text-2: #3f524a;
+  --muted: #75847d;
+  --accent: #10a85a;
+  --accent-deep: #08753f;
+  --accent-weak: #e7f8ef;
+  --accent-line: rgba(16, 168, 90, 0.30);
+  --warn: #b66b12;  --warn-bg: #fff4df;  --warn-line: #efd4a1;
+  --err: #c23a2e;   --err-bg: #fff0ee;   --err-line: #f0beb8;
   --think: #6b4ea0; --think-bg: #f3eefb; --think-line: #ddcef0;
+  --info: #0b7ea6;  --info-bg: #e8f7fb;  --info-line: #bde7f0;
 
   /* type scale */
   --fs-2xs: 11px; --fs-xs: 12px; --fs-sm: 13px; --fs-base: 14px;
-  --fs-md: 15px; --fs-lg: 17px; --fs-xl: 21px; --fs-2xl: 28px;
+  --fs-md: 15px; --fs-lg: 17px; --fs-xl: 22px; --fs-2xl: 32px;
   --lh-tight: 1.25; --lh: 1.5;
 
   /* spacing */
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
 
   /* radius */
-  --r-sm: 7px; --r-md: 10px; --r-lg: 14px; --r-xl: 18px; --r-pill: 999px;
+  --r-sm: 9px; --r-md: 13px; --r-lg: 18px; --r-xl: 24px; --r-pill: 999px;
 
-  /* elevation + focus */
-  --sh-sm: 0 1px 2px rgba(16, 40, 28, 0.06);
-  --sh-md: 0 1px 3px rgba(16, 40, 28, 0.06), 0 6px 16px rgba(16, 40, 28, 0.05);
-  --sh-pop: 0 10px 28px rgba(16, 40, 28, 0.14);
-  --sh-lg: 0 18px 50px rgba(16, 40, 28, 0.22);
-  --ring: 0 0 0 3px rgba(18, 161, 80, 0.18);
+  /* elevation + focus + glass */
+  --sh-sm: 0 1px 2px rgba(16, 40, 28, 0.05);
+  --sh-md: 0 1px 2px rgba(16, 40, 28, 0.04), 0 14px 34px rgba(16, 40, 28, 0.08);
+  --sh-pop: 0 18px 46px rgba(16, 40, 28, 0.16);
+  --sh-lg: 0 28px 80px rgba(16, 40, 28, 0.20);
+  --ring: 0 0 0 4px rgba(16, 168, 90, 0.15);
+  --glass: blur(18px) saturate(1.12);
+}
+/* ---- DARK theme — toggled via data-theme on <html>. Only colors/shadows
+   flip; type/spacing/radius/glass are inherited from :root above. ---- */
+:root[data-theme="dark"] {
+  --bg: #050812;
+  --surface: rgba(12, 18, 32, 0.82);
+  --card: rgba(12, 18, 32, 0.88);
+  --surface-2: rgba(18, 26, 46, 0.88);
+  --surface-3: rgba(255, 255, 255, 0.06);
+  --line: rgba(255, 255, 255, 0.11);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --text: #f5f8ff;
+  --text-2: #c9d6e8;
+  --muted: #8ea0bb;
+  --accent: #00e5ff;
+  --accent-deep: #7fffea;
+  --accent-weak: rgba(0, 229, 255, 0.11);
+  --accent-line: rgba(0, 229, 255, 0.32);
+  --warn: #ffcf7a;  --warn-bg: rgba(255, 207, 122, 0.11);  --warn-line: rgba(255, 207, 122, 0.35);
+  --err: #ff6b8a;   --err-bg: rgba(255, 107, 138, 0.12);   --err-line: rgba(255, 107, 138, 0.35);
+  --info: #72d7ff;  --info-bg: rgba(114, 215, 255, 0.12);  --info-line: rgba(114, 215, 255, 0.34);
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --sh-md: 0 18px 46px rgba(0, 0, 0, 0.34);
+  --sh-pop: 0 18px 46px rgba(0, 0, 0, 0.40);
+  --sh-lg: 0 30px 90px rgba(0, 0, 0, 0.48);
+  --ring: 0 0 0 4px rgba(0, 229, 255, 0.15);
 }
 * { box-sizing: border-box; }
 body {
-  margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg);
+  margin: 0; min-height: 100vh;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(16, 168, 90, 0.16), transparent 32%),
+    radial-gradient(circle at 80% 6%, rgba(20, 184, 166, 0.12), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(44, 88, 69, 0.12), transparent 36%),
+    linear-gradient(135deg, #f5f8f8 0%, #eef4f6 46%, #f8fbfa 100%);
+  background-attachment: fixed;
   color: var(--text);
   font-size: var(--fs-base);
   line-height: var(--lh);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(0, 229, 255, 0.18), transparent 30%),
+    radial-gradient(circle at 100% 18%, rgba(124, 97, 255, 0.18), transparent 32%),
+    radial-gradient(circle at 70% 100%, rgba(0, 255, 190, 0.10), transparent 30%),
+    linear-gradient(140deg, #050812 0%, #070b18 50%, #04060f 100%);
+  background-attachment: fixed;
+}
+/* glass surfaces blur the mesh behind them (translucent --surface tokens) */
+.card, .stat, .agentcard, .feed, .setup-list, .modal, .dl-menu,
+.msg.assistant, .addsrc, .exportbar, .statusline, .artifact-card {
+  -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass);
 }
 .app { max-width: 960px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) 60px; }
 /* Investigation workspace uses most of the viewport, centered. */
@@ -226,7 +270,7 @@ button.ghost { background: transparent; }
   background: var(--surface-2); padding: 6px var(--sp-2);
 }
 .setup-list::-webkit-scrollbar { width: 9px; }
-.setup-list::-webkit-scrollbar-thumb { background: #c7dcd0; border-radius: 5px; border: 2px solid var(--surface-2); }
+.setup-list::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 5px; border: 2px solid var(--surface-2); }
 .setup-list::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .mini { font-size: var(--fs-2xs); padding: 3px 9px; border-radius: 6px; }
 .check { display: flex; align-items: center; gap: 7px; padding: 4px 0; font-size: var(--fs-sm); cursor: pointer; margin: 0; color: var(--text); }
@@ -280,14 +324,23 @@ button.ghost { background: transparent; }
 .empty-hero h2 { font-size: var(--fs-2xl); }
 .empty-hero p { margin: 0; color: var(--muted); font-size: var(--fs-md); line-height: var(--lh); }
 .starter-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); width: 100%; margin-top: var(--sp-2); }
+.starter-zone { width: 100%; display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+.starter-label { font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .starter-chip {
   flex: 0 1 calc(50% - var(--sp-1)); min-width: 200px;
+  display: flex; flex-direction: column; gap: 4px;
   text-align: left; font-size: var(--fs-sm); line-height: var(--lh-tight);
   padding: 12px 14px; border-radius: var(--r-md);
   background: var(--surface); border: 1px solid var(--line-strong); color: var(--text-2); cursor: pointer;
-  box-shadow: var(--sh-sm);
+  box-shadow: var(--sh-sm); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass);
+  transition: border-color 0.12s, color 0.12s, background 0.12s, transform 0.08s;
 }
-.starter-chip:hover { border-color: var(--accent); color: var(--accent-deep); background: var(--accent-weak); }
+.starter-chip:hover { border-color: var(--accent); color: var(--accent-deep); background: var(--accent-weak); transform: translateY(-1px); }
+.starter-chip-kicker { font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-deep); }
+.followup-zone { margin-top: var(--sp-2); }
+/* header light/dark toggle */
+.themetoggle { width: 34px; height: 34px; padding: 0; border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; }
 
 .feed {
   background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);

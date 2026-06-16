@@ -32,6 +32,10 @@ export default function App() {
   const [caps, setCaps] = useState({ agents: [], tools: [], skills: [], mcp: [], stages: [] });
   const refreshCaps = () => getCapabilities().then(setCaps).catch(() => {});
 
+  // Light/dark theme: source of truth is data-theme on <html>; persisted across reloads.
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
+  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("theme", theme); }, [theme]);
+
   useEffect(() => { refreshCaps(); }, [nav.view]); // eslint-disable-line
   useEffect(() => {
     const onPop = () => setNav((n) => ({ ...n, ...readUrl() }));
@@ -64,6 +68,10 @@ export default function App() {
         </div>
         <div className="head-right">
           <button className="primary" onClick={() => newInvestigation("team")}>{t("newInvestigation")}</button>
+          <button className="themetoggle" title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+            onClick={() => setTheme((x) => (x === "dark" ? "light" : "dark"))}>
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
           <div className="langtoggle">
             <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
             <button className={lang === "de" ? "on" : ""} onClick={() => setLang("de")}>DE</button>
