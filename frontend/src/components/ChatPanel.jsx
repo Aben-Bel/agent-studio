@@ -14,6 +14,10 @@ const Md = ({ children }) => (
   <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ""}</ReactMarkdown></div>
 );
 
+// How many source chips to show inline under an answer before collapsing the rest
+// behind a "+N more" that opens the full evidence modal.
+const REF_CHIP_LIMIT = 6;
+
 // Suggestion de-duplication vs. what the user already asked.
 const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 function jaccard(a, b) {
@@ -614,13 +618,23 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                     {m.role === "assistant" && (m.references || []).length > 0 && (
                       <div className="refs">
                         <span className="muted small refs-label">{t("sources") || "Sources"}:</span>
-                        {m.references.map((r) => (
+                        {/* Show only the first few chips inline; the rest collapse behind a
+                            "+N more" that opens the modal (which lists every reference). A
+                            wall of 40+ chips is noise — keep the message readable. */}
+                        {m.references.slice(0, REF_CHIP_LIMIT).map((r) => (
                           <button key={r.n} className="ref-chip"
                             title={`${prettyName(r.tool)}${r.sources ? " · " + r.sources : ""} — click to verify`}
                             onClick={() => setOpenRefs({ references: m.references, focus: r.n })}>
                             [{r.n}] {r.sources || prettyName(r.tool)}
                           </button>
                         ))}
+                        {m.references.length > REF_CHIP_LIMIT && (
+                          <button className="ref-chip ref-more"
+                            title={t("showAllSources") || "Show all sources"}
+                            onClick={() => setOpenRefs({ references: m.references, focus: null })}>
+                            +{m.references.length - REF_CHIP_LIMIT} {t("more") || "more"}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
