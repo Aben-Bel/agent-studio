@@ -20,7 +20,8 @@ class AskHumanArgs(BaseModel):
 @tool("ask_human",
       "Pause and ask the human a question, then continue with their answer. "
       "Use when you need input, a decision, or approval to proceed.",
-      AskHumanArgs)
+      AskHumanArgs,
+      limits="Asks one free-text question and waits; cannot force a reply, time out, or act without the human.")
 def ask_human(question):
     # Intercepted by the orchestrator; never invoked directly.
     return question

@@ -192,18 +192,50 @@ def _tr(text, target_lang):
     return model.translate(text, target_lang)
 
 
+# Capability strings (descriptions/limits) are STATIC, so we translate each once
+# and cache the {en, de} pair forever. The catalog ships these pairs to every
+# client; the UI reads pair[lang] and switches language with ZERO refetch - same
+# pattern as chat messages. Keyed by source English text so new/edited tools pair
+# lazily on first serve.
+_CAPS_I18N_CACHE: dict = {}
+
+
+def _pair_static(text):
+    """{en, de} for a fixed English capability string, cached. Offline (mock)
+    translate is a no-op, so both sides equal the source - safe and never blank."""
+    text = text or ""
+    if not text.strip():
+        return {"en": "", "de": ""}
+    if text not in _CAPS_I18N_CACHE:
+        _CAPS_I18N_CACHE[text] = {"en": text, "de": model.translate(text, "de")}
+    return _CAPS_I18N_CACHE[text]
+
+
 def capabilities():
+    """Capability catalog. Every human-readable description/limits ships BOTH as the
+    plain English string (back-compat) AND as a `*_i18n` {en, de} pair, so the UI -
+    including tool tooltips - switches language client-side with no refetch and no
+    on-the-fly translation. Names/ids/versions stay literal."""
+    def entry(d, **extra):
+        out = {"description": d, "description_i18n": _pair_static(d)}
+        out.update(extra)
+        return out
     return {
-        "agents": [{"name": a.name, "description": a.description, "tools": a.tools}
+        "agents": [{"name": a.name, "tools": a.tools, **entry(a.description)}
                    for a in AGENTS.all().values()],
-        "tools": [{"name": t.name, "description": t.description,
-                   "version": t.version, "owner": t.owner, "tags": t.tags}
+        "tools": [{"name": t.name, "version": t.version, "owner": t.owner, "tags": t.tags,
+                   "limits": getattr(t, "limits", ""),
+                   "limits_i18n": _pair_static(getattr(t, "limits", "")),
+                   **entry(t.description)}
                   for t in TOOLS.all().values()],
-        "skills": [{"name": s.name, "description": s.description}
+        "skills": [{"name": s.name,
+                    "limits": getattr(s, "limits", ""),
+                    "limits_i18n": _pair_static(getattr(s, "limits", "")),
+                    **entry(s.description)}
                    for s in SKILLS.all().values()],
-        "mcp": [{"name": m.name, "description": m.description, "config": m.config}
+        "mcp": [{"name": m.name, "config": m.config, **entry(m.description)}
                 for m in MCP.all().values()],
-        "stages": [{"name": s.name, "order": s.order, "description": s.description}
+        "stages": [{"name": s.name, "order": s.order, **entry(s.description)}
                    for s in sorted(STAGES.all().values(), key=lambda x: x.order)],
     }
 
@@ -423,6 +455,7 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
         sess = _new_session(chat_id, agent_name)
         sess["allow_tools"] = set(allow_tools) if allow_tools else None
         sess["lang"] = lang
+        sess["sources"] = sources        # remember the run's data scope across resume turns
         runs.start_run(chat_id, agent_name)
         agent = AGENTS.get(agent_name)
         ev = _localize({"type": "agent_switch",
@@ -449,48 +482,27 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
     # Every streamed event is persisted to the audit trail (full visibility).
     # _localize pairs each event's text into {en, de} so the whole transcript +
     # trace can switch language client-side with no re-run.
-    for ev in _drive(sess):
-        ev = _localize(ev, lang)
-        runs.record(chat_id, ev)
-        yield ev
+    # Enforce the run's data scope so every tool the agent calls only sees the
+    # user's selected sources/documents (set on this thread for the _drive loop).
+    from connectors import scope as _scope
+    _scope.set_scope(sess.get("sources"))
+    try:
+        for ev in _drive(sess):
+            ev = _localize(ev, lang)
+            runs.record(chat_id, ev)
+            yield ev
+    finally:
+        _scope.clear_scope()
     runs.finish_run(chat_id, sess["status"])
 
 
-# The intake gate is routed to explicitly (run_team gates on it); it is NOT a normal
-# team specialist and must never be pulled into the analysis fan-out.
-INTAKE_AGENT = "readiness"
-
-
 def specialist_agents():
-    """Agents meant to be run as a team (everyone except supervisors that recruit and
-    the intake gate)."""
-    return [n for n, a in AGENTS.all().items()
-            if CONSULT_TOOL not in (a.tools or []) and n != INTAKE_AGENT]
+    """Agents meant to be run as a team (everyone except supervisors that recruit)."""
+    return [n for n, a in AGENTS.all().items() if CONSULT_TOOL not in (a.tools or [])]
 
 
 TEAM_SESSIONS: dict = {}    # chat_id -> [{"task", "synthesis"}] for follow-up continuity
 CLARIFY_PENDING: dict = {}  # chat_id -> {"task"} when the team asked the user to clarify
-# Intake state per chat: {"confirmed": bool, "signature": str}. Readiness is re-run when
-# never confirmed, or when the visible data's signature changed since confirmation.
-READINESS: dict = {}
-
-
-def _data_signature():
-    """Cheap fingerprint of the currently visible data shape (source.table:rows:cols),
-    so the intake gate re-fires when the connected data changes."""
-    try:
-        from connectors import datastore
-        parts = []
-        for s in datastore.list_sources():
-            for t in s.get("tables", []):
-                try:
-                    cols, rows = datastore.run_sql(f'SELECT * FROM "{t}"', source=s["name"])
-                    parts.append(f'{s["name"]}.{t}:{len(rows)}:{",".join(cols)}')
-                except Exception:
-                    parts.append(f'{s["name"]}.{t}:?')
-        return "|".join(sorted(parts))
-    except Exception:
-        return ""
 
 
 def suggest_questions(context="", lang="en"):
@@ -551,9 +563,21 @@ def _is_question(q):
     return q.endswith("?")
 
 
+def _always_on(names):
+    """Agents that declare themselves cross-cutting (routing.always) — kept in EVERY
+    run regardless of the LLM's pick. Read by PROPERTY, never by name, so any agent can
+    opt in by setting always=True and the orchestrator stays agent-agnostic."""
+    return [n for n in names if getattr(AGENTS.get(n).routing, "always", False)]
+
+
 def _route_agents(task, names):
     """LLM picks the minimal set of relevant specialists for THIS question, from
-    the ones the user selected. Routing, not always fan-out. Falls back to all."""
+    the ones the user selected. Routing, not always fan-out. Falls back to all.
+
+    Agents flagged `routing.always` (cross-cutting, e.g. intake/readiness) are kept in
+    the result whether or not the LLM lists them — advisory routing text alone does not
+    reliably retain them."""
+    must = _always_on(names)
     if len(names) <= 1 or cfg.mock_llm:
         return names
     catalog = "\n".join(f"- {n}: {AGENTS.get(n).routing_text()}" for n in names)
@@ -562,10 +586,13 @@ def _route_agents(task, names):
             [{"role": "user", "content":
               f"Question: {task}\n\nAvailable specialists:\n{catalog}\n\n"
               "List ONLY the specialist names actually needed to answer THIS question, "
-              "comma-separated. Omit irrelevant ones. If genuinely unsure, include it."}],
+              "comma-separated. Omit irrelevant ones. Always include any specialist marked "
+              "'ALWAYS run this'. If genuinely unsure, include it."}],
             [], _style("You route a question to the minimal set of relevant specialists."))
         picked = (r.content or "").replace("\n", ",").lower()
         sel = [n for n in names if n.lower() in picked]
+        # Force-keep cross-cutting agents the LLM may have pruned, preserving order.
+        sel = [n for n in names if n in sel or n in must]
         return sel or names
     except Exception:
         return names
@@ -592,49 +619,6 @@ def _needs_clarification(task, results):
     except Exception:
         return None
     return out.split(":", 1)[1].strip() if out.upper().startswith("CLARIFY:") else None
-
-
-def _run_intake_gate(chat_id, prompt, lang, emit, resume_msg=None):
-    """Drive the readiness agent as the first stop. Yields its UI events (inventory,
-    any ask_human pause) and finally a private {"type": "_intake_ready"} marker IFF the
-    data is confirmed analyzable. If the agent pauses for the human (needs_human) or the
-    readiness verdict is not 'ready', no marker is emitted and the caller stops the turn.
-
-    Runs in SINGLE-agent mode (no_pause=False) so ask_human genuinely suspends the run.
-    `resume_msg` answers a prior ask_human: the stored, paused gate session is continued
-    with the human's reply rather than restarted from scratch."""
-    pend_sess = SESSIONS.get(chat_id)
-    if (resume_msg is not None and pend_sess is not None
-            and pend_sess.get("agent") == INTAKE_AGENT and pend_sess.get("pending")):
-        sess = pend_sess                              # resume the paused gate
-        p = sess.pop("pending")
-        sess["msgs"].append({"role": "tool", "name": p["name"],
-                             "tool_call_id": p["tool_call_id"], "content": resume_msg})
-        sess["status"] = "running"
-    else:
-        agent = AGENTS.get(INTAKE_AGENT)
-        system = _style(agent.fn({}) if callable(agent.fn) else "")
-        sess = {"chat_id": chat_id, "agent": INTAKE_AGENT, "system": system,
-                "msgs": [{"role": "user", "content": prompt}], "status": "running",
-                "pending": None, "step": 0, "inbox": [], "allow_tools": None,
-                "no_pause": False, "lang": lang, "sub": False}
-        # Persist the gate session so a human reply to its ask_human resumes it.
-        SESSIONS[chat_id] = sess
-        yield emit({"type": "agent_switch",
-                    "data": {"agent": INTAKE_AGENT, "role": "intake", "chat_id": chat_id}})
-    verdict = None
-    for ev in _drive(sess):
-        if ev["type"] == "tool_result" and ev["data"].get("name") == "check_readiness":
-            res = ev["data"].get("result")
-            if isinstance(res, dict):
-                verdict = res.get("verdict")
-        if ev["type"] == "needs_human":
-            yield emit(ev)
-            return                                    # paused for the human; not ready
-        yield emit(ev)
-    if verdict == "ready":
-        SESSIONS.pop(chat_id, None)                   # gate done; free the single-agent slot
-        yield {"type": "_intake_ready"}
 
 
 def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, lang="en"):
@@ -680,31 +664,6 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
 
     yield emit({"type": "user_message", "data": {"text": user_msg}})
 
-    # ---- Intake gate: confirm the data is analyzable BEFORE routing specialists ----
-    # Runs FIRST only when readiness was never confirmed for this chat, or the visible
-    # data changed since it was. Once confirmed (and unchanged), normal routing proceeds.
-    gate_sess = SESSIONS.get(chat_id)
-    gate_paused = (gate_sess is not None and gate_sess.get("agent") == INTAKE_AGENT
-                   and gate_sess.get("pending"))
-    if INTAKE_AGENT in AGENTS.all() and not skip_clarify:
-        rstate = READINESS.get(chat_id, {})
-        sig = _data_signature()
-        if gate_paused or not (rstate.get("confirmed") and rstate.get("signature") == sig):
-            ready = False
-            # If a prior gate ask_human is pending, THIS message answers it.
-            resume_msg = user_msg if gate_paused else None
-            for ev in _run_intake_gate(chat_id, prompt, lang, emit, resume_msg):
-                if ev.get("type") == "_intake_ready":
-                    ready = True
-                    continue
-                yield ev
-            if not ready:
-                # Data is empty/ambiguous/insufficient: the gate asked the human (or
-                # reported the gap). Stop here; the next user turn re-enters and re-checks.
-                runs.finish_run(chat_id, "awaiting_human")
-                return
-            READINESS[chat_id] = {"confirmed": True, "signature": sig}
-
     # Route: pick only the specialists relevant to this question (not blind fan-out).
     candidates = names
     names = _route_agents(task, names)
@@ -717,6 +676,10 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
     results = {}
 
     def work(name):
+        # Scope is thread-local: set it INSIDE each agent's worker thread so every data
+        # tool that agent calls only sees the user's selected sources/documents.
+        from connectors import scope as _scope
+        _scope.set_scope(sources)
         try:
             agent = AGENTS.get(name)
             system = _style(agent.fn({}) if callable(agent.fn) else "")
@@ -773,7 +736,11 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
     yield emit({"type": "final",
                 "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True}})
     try:
-        sg = suggest_questions(f"Question: {user_msg}\nConclusion: {synthesis[:400]}", lang)
+        # Feed the FULL conclusion (not a 400-char clip): the answer often names the exact
+        # tables/columns the next question should reference (e.g. "wafer_defects has
+        # temperature_c, pressure_torr, ..."), and truncating cut those off, leaving the
+        # suggester to guess. Cap generously to bound prompt size on very long reports.
+        sg = suggest_questions(f"Question: {user_msg}\nConclusion: {synthesis[:2000]}", lang)
         yield emit({"type": "suggestions", "data": {"questions": sg}})
     except Exception:
         pass

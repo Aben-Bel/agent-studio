@@ -4,6 +4,7 @@ from core.declare import skill
 @skill(
     "quality_metrology_guidance",
     "Guidance for quality and metrology yield-analysis responses.",
+    limits="Returns a response-style prompt only; reads no data and performs no analysis.",
 )
 def quality_metrology_guidance(context=""):
     return (
@@ -18,6 +19,7 @@ def quality_metrology_guidance(context=""):
 @skill(
     "defect_inspection_guidance",
     "Guidance for defect inspection yield-analysis responses.",
+    limits="Returns a response-style prompt only; reads no data and performs no analysis.",
 )
 def defect_inspection_guidance(context=""):
     return (
@@ -32,6 +34,7 @@ def defect_inspection_guidance(context=""):
 @skill(
     "failure_analysis_guidance",
     "Guidance for failure analysis and RCA responses.",
+    limits="Returns a response-style prompt only; reads no data and performs no analysis.",
 )
 def failure_analysis_guidance(context=""):
     return (
@@ -46,6 +49,7 @@ def failure_analysis_guidance(context=""):
 @skill(
     "statistical_evidence_guidance",
     "Guidance for statistical evidence and data-analysis responses.",
+    limits="Returns a response-style prompt only; reads no data and performs no analysis.",
 )
 def statistical_evidence_guidance(context=""):
     return (

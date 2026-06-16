@@ -19,6 +19,7 @@ class DownloadArgs(BaseModel):
       "slide deck / report / document. format: 'presentation_pdf' (slide deck PDF), "
       "'report_md' (written report), or 'presentation_tex' (LaTeX source). You CAN "
       "produce files - never say you cannot.",
-      DownloadArgs, owner="output", tags=["output", "download"])
+      DownloadArgs, owner="output", tags=["output", "download"],
+      limits="Generates a file from existing findings; cannot email, upload, or send it anywhere.")
 def prepare_download(format="presentation_pdf", title=None):
     return f"(preparing {format} download)"   # intercepted by the orchestrator

@@ -29,6 +29,7 @@ class OutlierArgs(BaseModel):
     SummaryArgs,
     owner="personas",
     tags=["statistics", "data-science"],
+    limits="Describes numeric columns only; no correlation, hypothesis testing, or causal inference.",
 )
 def compute_summary_stats(table="wafer_defects", columns=""):
     try:
@@ -61,6 +62,7 @@ def compute_summary_stats(table="wafer_defects", columns=""):
     OutlierArgs,
     owner="personas",
     tags=["statistics", "anomaly", "data-science"],
+    limits="Flags outliers in one numeric column by IQR/z-score; does not explain or attribute a cause.",
 )
 def detect_outliers(table="wafer_defects", column="", method="iqr", threshold=3.0):
     try:

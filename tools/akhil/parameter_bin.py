@@ -24,6 +24,7 @@ class ParamBinArgs(BaseModel):
     ParamBinArgs,
     owner="akhil",
     tags=["defect", "parameter", "binning", "yield"],
+    limits="Reports per-bin defect rates (association), not causation, and needs a numeric parameter column.",
 )
 def parameter_bin_analysis(
     table="wafer_defects",

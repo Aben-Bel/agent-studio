@@ -24,6 +24,7 @@ class DefectSummaryArgs(BaseModel):
     DefectSummaryArgs,
     owner="personas",
     tags=["defect", "inspection", "distribution"],
+    limits="Aggregates counts by group only; descriptive distribution, not a statistical test or root cause.",
 )
 def summarize_defect_distribution(
     table="wafer_defects",

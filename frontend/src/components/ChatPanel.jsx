@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { TraceLanes } from "./Trace.jsx";
 import Modal from "./Modal.jsx";
 import AddAgentModal from "./AddAgentModal.jsx";
+import ToolTip from "./ToolTip.jsx";
 import { useI18n } from "../i18n.jsx";
 import { prettyName } from "../format.js";
 import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport } from "../api.js";
@@ -32,7 +33,17 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   // means a language toggle instantly re-renders the whole history - no re-run.
   const pick = (i18nMap, fallback) => (i18nMap && (i18nMap[lang] || i18nMap.en)) || fallback || "";
   const specialists = (caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent"));
-  const allTools = [...(caps.tools || []), ...(caps.skills || [])];
+  // Resolve each tool/skill's description + limits to the CURRENT language from the
+  // {en, de} pairs the backend ships (description_i18n / limits_i18n). No refetch -
+  // a language toggle re-renders these from the already-loaded pairs, same as chat.
+  const allTools = [...(caps.tools || []), ...(caps.skills || [])].map((x) => ({
+    ...x,
+    description: pick(x.description_i18n, x.description),
+    limits: pick(x.limits_i18n, x.limits),
+  }));
+  // name -> {description, limits} so any place that only has a tool NAME (e.g. an
+  // agent's tool list) can still show the full can/cannot tooltip.
+  const toolInfo = Object.fromEntries(allTools.map((x) => [x.name, x]));
 
   const [agents, setAgents] = useState(initialAgents);
   const [tools, setTools] = useState(null);     // null = all
@@ -188,13 +199,14 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     setDocsOn(next.length === docs.length ? null : next);
   }
   // The data the run is scoped to: selected SQL sources + selected documents.
-  // undefined when nothing is deselected (= use everything).
+  // undefined ONLY when nothing has been deselected (= use everything). Once the user
+  // has touched the selection, we send the explicit list — including an EMPTY list when
+  // everything is deselected, so the backend scopes the run to NO data (not "all").
   function scopedSources() {
     if (srcOn === null && docsOn === null) return undefined;
     const s = (srcOn === null ? sources.map((x) => x.name) : srcOn);
     const d = (docsOn === null ? docs.map((x) => x.source) : docsOn);
-    const list = [...s, ...d];
-    return list.length ? list : undefined;
+    return [...s, ...d];   // may be [] = deselected everything = no data in scope
   }
 
   function describeResult(x) {
@@ -449,9 +461,11 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             <div className="setup-title">{t("toolsSkills")} <span className="muted small">{tools === null ? allTools.length : tools.length}/{allTools.length}</span></div>
             <div className="setup-list">
               {allTools.map((t) => (
-                <label key={t.name} className="check" title={t.description}>
+                <label key={t.name} className="check">
                   <input type="checkbox" checked={toolOn(t.name)} onChange={() => toggleTool(t.name)} />
-                  <span>{t.name}</span>
+                  <ToolTip name={t.name} cap={t.description} cannot={t.limits} side="right">
+                    <span className="toolname">{t.name}</span>
+                  </ToolTip>
                 </label>
               ))}
             </div>
@@ -572,7 +586,11 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           <p className="muted">{inspectAgent.description}</p>
           <div className="setup-title" style={{ marginTop: 12 }}>Tools it may use ({(inspectAgent.tools || []).length})</div>
           <div className="chips">
-            {(inspectAgent.tools || []).map((t) => <span key={t} className="chip on">{t}</span>)}
+            {(inspectAgent.tools || []).map((t) => (
+              <ToolTip key={t} name={t} cap={toolInfo[t]?.description} cannot={toolInfo[t]?.limits}>
+                <span className="chip on">{t}</span>
+              </ToolTip>
+            ))}
             {!(inspectAgent.tools || []).length && <span className="muted small">none</span>}
           </div>
           <div className="row end" style={{ marginTop: 14 }}>

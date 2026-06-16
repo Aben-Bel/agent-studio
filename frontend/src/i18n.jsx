@@ -56,6 +56,10 @@ const STRINGS = {
     // overview
     startInvestigation: "Start a root-cause investigation",
     tryAsking: "Try asking:",
+    // tool tooltip
+    ttCan: "Can:",
+    ttCannot: "Cannot:",
+    ttNone: "No description available.",
   },
   de: {
     title: "Ausbeuteanalyse",
@@ -106,6 +110,9 @@ const STRINGS = {
     readyToDownload: "Bereit zum Herunterladen",
     startInvestigation: "Ursachenanalyse starten",
     tryAsking: "Fragen Sie z. B.:",
+    ttCan: "Kann:",
+    ttCannot: "Kann nicht:",
+    ttNone: "Keine Beschreibung verfügbar.",
   },
 };
 

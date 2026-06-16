@@ -39,7 +39,8 @@ class CorrelateResult(BaseModel):
       "otherwise an explicit 'no significant association' or 'insufficient data' result — "
       "it never invents a 'strongest driver'. Args: table, group_col (categorical, blank "
       "to infer), outcome_col (binary 0/1, blank to infer).",
-      CorrelateArgs, returns=CorrelateResult, owner="rca-core", tags=["analysis", "yield", "stats"])
+      CorrelateArgs, returns=CorrelateResult, owner="rca-core", tags=["analysis", "yield", "stats"],
+      limits="Reports association, not causation; needs a categorical group + binary 0/1 outcome and enough non-degenerate rows.")
 def correlate_params_vs_yield(table="wafer_defects", group_col="", outcome_col=""):
     try:
         cols, rows = datastore.run_sql(f'select * from "{table}"')

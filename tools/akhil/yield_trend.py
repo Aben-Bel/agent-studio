@@ -26,6 +26,7 @@ class YieldTrendArgs(BaseModel):
     YieldTrendArgs,
     owner="akhil",
     tags=["yield", "trend", "drift", "excursion"],
+    limits="Flags drift/excursion patterns as observations only; does not establish a cause and needs a numeric wafer-order column.",
 )
 def yield_trend(
     table="wafer_defects",

@@ -88,8 +88,13 @@ def connect_db(url, name=None):
 _INTERNAL_TABLES = {"doc_chunks", "documents", "runs", "run_steps"}
 
 
-def list_sources():
-    """Every connected source and the (user) tables in it (for /sources and tooling)."""
+def list_sources(respect_scope=True):
+    """Every connected source and the (user) tables in it (for /sources and tooling).
+
+    Honours the active per-run data scope (connectors.scope): a deselected source or
+    table is omitted entirely, so tools and agents never see data the user excluded.
+    Pass respect_scope=False for admin/UI listings that must show everything."""
+    from connectors import scope
     _engine("local")                         # make sure local is always present
     out = []
     for name, eng in _ENGINES.items():
@@ -97,6 +102,11 @@ def list_sources():
             tables = [t for t in inspect(eng).get_table_names() if t not in _INTERNAL_TABLES]
         except Exception:
             tables = []
+        if respect_scope:
+            # A source is in scope if it is named directly, or any of its tables is.
+            tables = [t for t in tables if scope.allows(t, name)]
+            if not scope.allows(name, *tables):
+                continue                     # whole source deselected -> hide it
         out.append({"name": name, "dialect": eng.dialect.name, "tables": tables})
     return out
 
@@ -172,9 +182,31 @@ def get_uploaded_file(name=None):
     return buf
 
 
-def run_sql(sql, source="local"):
-    """Run a query against a source. Returns (columns, rows)."""
+def run_sql(sql, source="local", respect_scope=True):
+    """Run a query against a source. Returns (columns, rows).
+
+    Honours the active per-run scope: a query that references a deselected table is
+    refused, so an agent cannot read data the user excluded by querying it directly
+    (the prompt-level 'use only these sources' note is advisory; this is enforcement)."""
     eng = _engine(source)
+    if respect_scope:
+        from connectors import scope
+        if scope.is_active():
+            try:
+                present = [t for t in inspect(eng).get_table_names()
+                           if t not in _INTERNAL_TABLES]
+            except Exception:
+                present = []
+            low = sql.lower()
+            # Any user table named in the query must be in scope (word-boundary match).
+            import re as _re
+            referenced = [t for t in present
+                          if _re.search(rf'(?<![\w]){_re.escape(t.lower())}(?![\w])', low)]
+            blocked = [t for t in referenced if not scope.allows(t, source)]
+            if blocked:
+                raise ValueError(
+                    f"table(s) {blocked} are not in the selected data scope for this run; "
+                    "they were deselected by the user")
     with eng.connect() as cx:
         res = cx.execute(text(sql))
         if res.returns_rows:

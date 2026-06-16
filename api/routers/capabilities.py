@@ -16,7 +16,8 @@ def health():
 def capabilities():
     """Everything the system can do right now, generated from the registries:
     agents, tools (with version/owner), skills, MCP servers, and pipeline stages.
-    New capabilities appear here with no code change."""
+    Human-readable description/limits ship as {en, de} pairs so the UI switches
+    language with zero refetch. New capabilities appear here with no code change."""
     return orchestrator.capabilities()
 
 

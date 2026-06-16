@@ -7,7 +7,8 @@ import pandas as pd
 class Empty(BaseModel):
     name: str | None = None   # optional: which uploaded file/table to load (default: most recent)
 
-@tool("load_uploaded_csv", "Load and return the contents of an uploaded CSV. Pass `name` to pick a specific file/table when several were uploaded; omit it for the most recent.", Empty, owner="laure")
+@tool("load_uploaded_csv", "Load and return the contents of an uploaded CSV. Pass `name` to pick a specific file/table when several were uploaded; omit it for the most recent.", Empty, owner="laure",
+      limits="Loads already-uploaded CSVs only; cannot fetch URLs, connect databases, or parse non-CSV files.")
 def load_uploaded_csv(name=None):
     # datastore.get_uploaded_file() should return a path or file-like object
     file_path = datastore.get_uploaded_file(name)

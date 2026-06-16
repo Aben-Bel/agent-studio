@@ -20,6 +20,7 @@ class ConsultArgs(BaseModel):
       "Persona specialists: yield_statistician, metrology_analyst, "
       "defect_profiler, rca_engineer. "
       "Supporting: data_analyst, manuals_expert, equipment_specialist.",
-      ConsultArgs, owner="orchestration", tags=["multi-agent"])
+      ConsultArgs, owner="orchestration", tags=["multi-agent"],
+      limits="Recruits only the registered specialist agents; cannot invoke external services or arbitrary tools.")
 def consult_agent(agent, task):
     return f"(recruiting {agent})"   # intercepted by the orchestrator

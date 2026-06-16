@@ -15,7 +15,8 @@ class FmeaArgs(BaseModel):
 @tool("search_fmea",
       "Search uploaded FMEA / failure-mode knowledge and equipment manuals for "
       "passages relevant to a defect symptom or parameter.",
-      FmeaArgs, owner="rca-core", tags=["rag", "knowledge"])
+      FmeaArgs, owner="rca-core", tags=["rag", "knowledge"],
+      limits="Searches indexed FMEA/manual uploads only; cannot query SQL tables or read un-indexed files.")
 def search_fmea(query):
     hits = memory.search(query, k=4)
     if not hits:

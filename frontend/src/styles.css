@@ -555,6 +555,35 @@ button.ghost { background: transparent; }
 .dl-lang.cur { background: var(--accent-weak); border-color: var(--accent); }
 :root[data-theme="dark"] .dl-lang:hover { color: #031018; }
 
+/* Rich tool/skill tooltip: name + what it CAN do (description) and what it
+   CANNOT do (limits). Shown on hover/focus anywhere a tool or skill is listed.
+   The card is portalled to <body> and fixed-positioned (see ToolTip.jsx) so a
+   scroll container's overflow can never clip it. */
+.tt-wrap { position: relative; display: inline-flex; outline: none; }
+.tt-card {
+  position: fixed; z-index: 99999; width: 300px; max-width: 92vw; pointer-events: none;
+  /* OPAQUE: this is portalled to <body> with no backdrop-filter behind it, so it
+     must not use the semi-transparent --surface token or it reads as see-through. */
+  background: #ffffff; color: #122019; text-align: left;
+  border: 1px solid rgba(22, 42, 34, 0.18); border-radius: var(--r-md);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  padding: 9px 11px; font-size: var(--fs-xs); line-height: 1.4; white-space: normal;
+}
+:root[data-theme="dark"] .tt-card {
+  background: #141b2c; color: #f5f8ff; border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+}
+.tt-name { display: block; font-weight: 700; font-size: var(--fs-sm); margin-bottom: 5px;
+  color: var(--accent-deep); font-family: ui-monospace, Menlo, monospace; }
+.tt-line { display: flex; gap: 6px; align-items: flex-start; margin-top: 3px; }
+.tt-mark { flex: 0 0 auto; font-weight: 800; line-height: 1.45; }
+.tt-can .tt-mark { color: var(--accent); }
+.tt-cannot .tt-mark { color: var(--err, #d4564a); }
+.tt-key { font-weight: 700; }
+.tt-muted { color: var(--muted); }
+/* make the trigger feel hoverable */
+.toolname { cursor: help; border-bottom: 1px dotted var(--line); }
+
 /* export progress / result bar, above the composer */
 .exportbar {
   display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; font-size: var(--fs-xs);

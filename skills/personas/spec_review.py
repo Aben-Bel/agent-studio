@@ -15,6 +15,7 @@ import pandas as pd
     "Finds candidate (value, spec_limit, control_limit) column pairs by naming "
     "convention, checks each pair, and returns a pass/fail summary table. "
     "Faster than querying each column individually.",
+    limits="Detects value/spec pairs by column-name convention; may miss oddly named columns and asserts no cause.",
 )
 def run_full_spec_review(table: str = "wafer_defects") -> str:
     try:

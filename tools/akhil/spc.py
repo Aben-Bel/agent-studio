@@ -25,6 +25,7 @@ class SpcArgs(BaseModel):
     SpcArgs,
     owner="akhil",
     tags=["spc", "control-chart", "statistics", "quality"],
+    limits="Flags out-of-control points on numeric columns only; does not diagnose why or imply a cause.",
 )
 def spc_check(table="wafer_defects", columns="", sigma=3.0):
     try:

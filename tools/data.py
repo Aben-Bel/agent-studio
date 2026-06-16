@@ -10,7 +10,8 @@ class Empty(BaseModel):
 @tool("list_data_sources",
       "List ALL data the user has: connected SQL sources/tables AND uploaded "
       "documents (PDFs/manuals indexed for search). Use this to answer 'what data "
-      "do I have'.", Empty)
+      "do I have'.", Empty,
+      limits="Lists source/table/document names only; does not read row data or document contents.")
 def list_data_sources():
     parts = []
     for s in datastore.list_sources():
@@ -31,7 +32,8 @@ class QueryArgs(BaseModel):
 @tool("query_data",
       "Run a read-only SQL SELECT against a connected data source and return the "
       "rows. Use list_data_sources first to see source names and tables.",
-      QueryArgs)
+      QueryArgs,
+      limits="Read-only SELECT/WITH only; cannot write, update, delete, or alter schema; caps output at 50 rows.")
 def query_data(sql, source="local"):
     # Reads are tolerant; mutations are refused - the data sources are not a
     # write path for the agent.

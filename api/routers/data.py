@@ -88,13 +88,14 @@ def connect_db(req: ConnectDbRequest):
 def sources():
     """Every connected data source and the tables inside it: the local CSV store
     plus any databases added via /connect-db or DATABASE_URL."""
-    return {"sources": datastore.list_sources()}
+    # UI listing: show EVERYTHING so the user can pick what to include (no run scope here).
+    return {"sources": datastore.list_sources(respect_scope=False)}
 
 
 @router.get("/documents")
 def documents():
     """Uploaded documents in the RAG store (PDFs/manuals) - they are data sources too."""
-    return {"documents": memory.list_documents()}
+    return {"documents": memory.list_documents(respect_scope=False)}
 
 
 @router.get("/documents/{source}/preview")

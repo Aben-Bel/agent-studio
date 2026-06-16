@@ -16,9 +16,16 @@ class AgentRouting:
     how_to_use: str = ""
     what_to_use_for: str = ""
     what_not_to_use_for: str = ""
+    # An agent that must run on EVERY investigation regardless of the question (e.g. an
+    # intake/readiness check). The router keeps it in the selected set instead of letting
+    # the LLM prune it. Declarative + generic: the orchestrator honours this flag by
+    # PROPERTY, never by agent name — any agent can opt in by setting always=True.
+    always: bool = False
 
     def as_prompt(self) -> str:
         parts = []
+        if self.always:
+            parts.append("ALWAYS run this (cross-cutting; do not omit)")
         if self.when_to_use:
             parts.append(f"when to use: {self.when_to_use}")
         if self.what_to_use_for:
@@ -45,15 +52,18 @@ class AgentDecl:
 
 
 def agent(name, description, tools=None, routing=None,
-          when_to_use="", how_to_use="", what_to_use_for="", what_not_to_use_for=""):
+          when_to_use="", how_to_use="", what_to_use_for="", what_not_to_use_for="",
+          always=False):
     """Declare an agent. Drop a file in agents/ with this decorator and the
     orchestrator discovers and routes to it. No shared file is edited.
 
     Routing metadata (typed, not prose) sharpens orchestrator routing. Pass either a
-    ready `AgentRouting` via `routing=`, or the four fields directly as kwargs."""
+    ready `AgentRouting` via `routing=`, or the four fields directly as kwargs. Set
+    `always=True` for a cross-cutting agent (e.g. intake/readiness) the router must
+    never prune from a run."""
     r = routing or AgentRouting(when_to_use=when_to_use, how_to_use=how_to_use,
                                 what_to_use_for=what_to_use_for,
-                                what_not_to_use_for=what_not_to_use_for)
+                                what_not_to_use_for=what_not_to_use_for, always=always)
     def deco(fn):
         AGENTS.register(name)(AgentDecl(name, description, fn, tools or [], r))
         return fn
@@ -77,15 +87,18 @@ class ToolDecl:
     version: str = "2026-06-15"           # date-string version (MCP-style)
     owner: str = ""                       # who owns/maintains this tool
     tags: list = field(default_factory=list)
+    limits: str = ""                      # what this tool CANNOT do (shown in UI tooltip)
 
 
-def tool(name, description, args, returns=None, version="2026-06-15", owner="", tags=None):
+def tool(name, description, args, returns=None, version="2026-06-15", owner="", tags=None,
+         limits=""):
     """Declare a tool. `args` is a pydantic model = typed signature + JSON schema.
-    Optionally give an output schema (`returns`), a `version`, and an `owner` so the
-    registry stays trustworthy as many people add tools."""
+    Optionally give an output schema (`returns`), a `version`, an `owner`, and
+    `limits` (a short 'what this tool CANNOT do' note surfaced in the UI tooltip)
+    so the registry stays trustworthy and honest as many people add tools."""
     def deco(fn):
         TOOLS.register(name)(ToolDecl(name, description, args, fn, returns,
-                                      version, owner, tags or []))
+                                      version, owner, tags or [], limits))
         return fn
     return deco
 
@@ -96,12 +109,14 @@ class SkillDecl:
     name: str
     description: str
     fn: Callable
+    limits: str = ""                      # what this skill CANNOT do (UI tooltip)
 
 
-def skill(name, description=""):
-    """Declare a skill: a reusable multi-step routine the agent can invoke."""
+def skill(name, description="", limits=""):
+    """Declare a skill: a reusable multi-step routine the agent can invoke.
+    `limits` is an optional 'what this CANNOT do' note shown in the UI tooltip."""
     def deco(fn):
-        SKILLS.register(name)(SkillDecl(name, description, fn))
+        SKILLS.register(name)(SkillDecl(name, description, fn, limits))
         return fn
     return deco
 

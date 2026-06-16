@@ -50,22 +50,29 @@ def add_document(text, source):
 
 
 def search(query, k=3):
+    """Semantic search over uploaded doc chunks, restricted to in-scope documents:
+    a deselected document contributes no chunks, so RAG tools cannot surface it."""
     _init()
+    from connectors import scope
     q = _vec(query)
     with _engine("local").connect() as cx:
-        rows = cx.execute(sql("select chunk, vec from doc_chunks")).fetchall()
-    scored = [(sum(a * b for a, b in zip(q, json.loads(v))), c) for c, v in rows]
+        rows = cx.execute(sql("select source, chunk, vec from doc_chunks")).fetchall()
+    scored = [(sum(a * b for a, b in zip(q, json.loads(v))), c)
+              for src, c, v in rows if scope.allows(src)]
     scored.sort(reverse=True)
     return [c for s, c in scored[:k] if s > 0]
 
 
-def list_documents():
-    """Uploaded documents in the RAG store (so they show up as data sources too)."""
+def list_documents(respect_scope=True):
+    """Uploaded documents in the RAG store (so they show up as data sources too).
+    Honours the active per-run scope; pass respect_scope=False for admin/UI listings."""
     _init()
+    from connectors import scope
     with _engine("local").connect() as cx:
         rows = cx.execute(sql("select source, count(*), coalesce(sum(length(chunk)),0) "
                               "from doc_chunks group by source order by source")).fetchall()
-    return [{"source": r[0], "chunks": r[1], "chars": r[2]} for r in rows]
+    return [{"source": r[0], "chunks": r[1], "chars": r[2]} for r in rows
+            if not respect_scope or scope.allows(r[0])]
 
 
 def get_document(source, limit_chars=20000):

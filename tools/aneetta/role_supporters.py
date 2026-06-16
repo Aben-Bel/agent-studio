@@ -15,6 +15,7 @@ class RoleSupportArgs(BaseModel):
     "yield_persona_support",
     "Match a semiconductor user role or broad group to analyzer personas and check whether dataset columns support that role.",
     RoleSupportArgs,
+    limits="Matches roles by column names only; does not read row data or run any analysis.",
 )
 def aneetta_role_support(
     user_text: str,

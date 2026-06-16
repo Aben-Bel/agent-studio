@@ -23,6 +23,7 @@ class SimilarCasesArgs(BaseModel):
     SimilarCasesArgs,
     owner="akhil",
     tags=["cases", "rag", "fmea", "history", "rca"],
+    limits="Searches uploaded/indexed docs only; returns nothing if no FMEA/RCA history was uploaded.",
 )
 def find_similar_cases(signature, top_k=3):
     if not signature or not signature.strip():

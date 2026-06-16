@@ -14,6 +14,7 @@ import pandas as pd
     "Profile defects across type, wafer zone, and process step in one pass. "
     "Returns per-dimension breakdowns and a top-10 co-occurrence table so the "
     "engineer can spot which (type × zone) or (type × step) combinations dominate.",
+    limits="Descriptive frequency breakdowns/co-occurrence only; not a statistical association test or root cause.",
 )
 def analyze_defect_patterns(
     table: str = "wafer_defects",

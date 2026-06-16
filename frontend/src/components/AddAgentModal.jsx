@@ -1,11 +1,21 @@
 import React, { useState } from "react";
 import Modal from "./Modal.jsx";
+import ToolTip from "./ToolTip.jsx";
+import { useI18n } from "../i18n.jsx";
 import { createAgent } from "../api.js";
 
 // Create a custom agent from the Setup panel. It registers live and shows up in
 // the agent list immediately (after caps refresh).
 export default function AddAgentModal({ caps, onClose, onCreated }) {
-  const callable = [...(caps.tools || []), ...(caps.skills || [])];
+  const { lang } = useI18n();
+  // Resolve description/limits to the current language from the {en, de} pairs the
+  // backend ships - no refetch, flips with the language toggle.
+  const pick = (m, f) => (m && (m[lang] || m.en)) || f || "";
+  const callable = [...(caps.tools || []), ...(caps.skills || [])].map((c) => ({
+    ...c,
+    description: pick(c.description_i18n, c.description),
+    limits: pick(c.limits_i18n, c.limits),
+  }));
   const [name, setName] = useState("");
   const [persona, setPersona] = useState("");
   const [picked, setPicked] = useState(callable.map((c) => c.name).filter((n) => n !== "consult_agent"));
@@ -36,8 +46,10 @@ export default function AddAgentModal({ caps, onClose, onCreated }) {
       <label>Tools it may use</label>
       <div className="chips">
         {callable.map((c) => (
-          <button key={c.name} className={"chip" + (picked.includes(c.name) ? " on" : "")}
-            title={c.description} onClick={() => toggle(c.name)}>{c.name}</button>
+          <ToolTip key={c.name} name={c.name} cap={c.description} cannot={c.limits}>
+            <button className={"chip" + (picked.includes(c.name) ? " on" : "")}
+              onClick={() => toggle(c.name)}>{c.name}</button>
+          </ToolTip>
         ))}
       </div>
       <div className="row end">

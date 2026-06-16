@@ -49,7 +49,8 @@ def _infer_dtype(s: pd.Series) -> str:
       "(categorical group column + binary 0/1 outcome + enough rows + non-zero variance). "
       "Returns a structured verdict: ready | ambiguous | insufficient | empty. Use at intake, "
       "before routing analysis specialists. Confirms data correctness only — never a finding.",
-      ReadinessArgs, returns=ReadinessResult, owner="rca-core", tags=["intake", "readiness"])
+      ReadinessArgs, returns=ReadinessResult, owner="rca-core", tags=["intake", "readiness"],
+      limits="Checks data correctness/shape only; never runs the analysis, asserts a finding, or needs ground truth.")
 def check_readiness(sources=""):
     wanted = {s.strip() for s in sources.split(",") if s.strip()} or None
     inventory, reasons = [], []

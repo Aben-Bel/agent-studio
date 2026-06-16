@@ -13,6 +13,7 @@ from connectors import datastore
     "Run a complete defect risk profile in one call: process step ranking, "
     "defect distribution, and yield trend pattern. Returns a consolidated "
     "summary so the agent does not need to chain 3 tool calls manually.",
+    limits="Descriptive single-table profile; ranks worst step by raw rate without a significance test or causal claim.",
 )
 def defect_risk_profile(
     table: str = "wafer_defects",

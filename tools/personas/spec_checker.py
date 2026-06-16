@@ -24,6 +24,7 @@ class SpecArgs(BaseModel):
     SpecArgs,
     owner="personas",
     tags=["quality", "metrology", "spec"],
+    limits="Compares value vs spec/control columns in one loaded table; needs those columns and does not infer a cause.",
 )
 def check_spec_limits(
     table="wafer_defects",

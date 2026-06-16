@@ -27,6 +27,7 @@ class ProcessStepArgs(BaseModel):
     ProcessStepArgs,
     owner="akhil",
     tags=["process", "yield", "defect", "step"],
+    limits="Calls out a step only when a significance test passes; reports association, not proven cause.",
 )
 def compare_process_steps(
     table="wafer_defects",

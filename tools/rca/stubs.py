@@ -23,7 +23,8 @@ class FdcArgs(BaseModel):
 @tool("query_fdc_timeseries",
       "Fetch FDC (fault-detection-and-classification) process-parameter "
       "time-series for a lot / tool / parameter.",
-      FdcArgs, owner="equipment-team", tags=["fdc", "timeseries", "stub"])
+      FdcArgs, owner="equipment-team", tags=["fdc", "timeseries", "stub"],
+      limits="Not implemented — no FDC backend wired; returns a placeholder, fetches no real trace.")
 def query_fdc_timeseries(lot_id, parameter="", tool_id=""):
     return _todo("Would return the FDC trace", lot=lot_id, parameter=parameter, tool=tool_id)
 
@@ -34,7 +35,8 @@ class WaferMapArgs(BaseModel):
 
 @tool("get_wafer_map",
       "Return the spatial defect / bin map for a wafer (defect signature).",
-      WaferMapArgs, owner="defect-team", tags=["wafermap", "stub"])
+      WaferMapArgs, owner="defect-team", tags=["wafermap", "stub"],
+      limits="Not implemented — no wafer-map source wired; returns a placeholder, not a real defect map.")
 def get_wafer_map(wafer_id):
     return _todo("Would return the wafer defect map", wafer=wafer_id)
 
@@ -46,6 +48,7 @@ class SimilarCasesArgs(BaseModel):
 @tool("find_similar_cases",
       "Find historical RCA cases with a similar defect signature and their "
       "confirmed root cause.",
-      SimilarCasesArgs, owner="rca-core", tags=["cases", "stub"])
+      SimilarCasesArgs, owner="rca-core", tags=["cases", "stub"],
+      limits="Not implemented — no case database wired; returns a placeholder, finds no real cases.")
 def find_similar_cases(signature):
     return _todo("Would return similar historical cases + root causes", signature=signature)

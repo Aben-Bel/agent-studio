@@ -6,6 +6,7 @@ from core.declare import skill
     "Check whether the given `analysis_results` are enough to answer the "
     "`question` for the given `user_persona`. Use `available_data` to decide "
     "which extra data sources or skills are still needed before final summary.",
+    limits="Keyword-matches text for required data categories only; does not fetch data or judge analysis quality.",
 )
 def check_summary_readiness(
     question,
