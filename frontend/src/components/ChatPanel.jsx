@@ -5,6 +5,7 @@ import { TraceLanes } from "./Trace.jsx";
 import Modal from "./Modal.jsx";
 import AddAgentModal from "./AddAgentModal.jsx";
 import { useI18n } from "../i18n.jsx";
+import { prettyName } from "../format.js";
 import { runChat, addContext, getRun, getSources, uploadFiles, connectDb, previewTable, getDocuments, previewDocument, getSuggestions, getExportFormats, exportReport } from "../api.js";
 
 const Md = ({ children }) => (
@@ -258,9 +259,9 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           sources: scopedSources() },
         (ev) => {
           if (ev.type !== "user_message") appendEvent(ev);
-          const d = ev.data || {}; const who = d.agent_scope ? d.agent_scope + ": " : "";
-          if (ev.type === "agent_switch" && d.role === "dispatch") setStatus("dispatched to " + (d.agents || []).join(", "));
-          else if (ev.type === "agent_switch" && d.role === "working") setStatus(d.agent + " started");
+          const d = ev.data || {}; const who = d.agent_scope ? prettyName(d.agent_scope) + ": " : "";
+          if (ev.type === "agent_switch" && d.role === "dispatch") setStatus("dispatched to " + (d.agents || []).map(prettyName).join(", "));
+          else if (ev.type === "agent_switch" && d.role === "working") setStatus(prettyName(d.agent) + " started");
           else if (ev.type === "progress") setStatus(who + d.message);
           else if (ev.type === "thinking") setStatus(who + "reasoning...");
           else if (ev.type === "tool_call") setStatus(who + "using " + d.name);
@@ -347,7 +348,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
               {specialists.map((a) => (
                 <div key={a.name} className="srcrow">
                   <input type="checkbox" checked={agents.includes(a.name)} onChange={() => toggle(agents, setAgents, a.name)} />
-                  <button className="srclink" onClick={() => setInspectAgent(a)} title="what is this agent?">{a.name}</button>
+                  <button className="srclink" onClick={() => setInspectAgent(a)} title="what is this agent?">{prettyName(a.name)}</button>
                 </div>
               ))}
             </div>
@@ -525,7 +526,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
       )}
 
       {inspectAgent && (
-        <Modal title={`Agent: ${inspectAgent.name}`} onClose={() => setInspectAgent(null)}>
+        <Modal title={`Agent: ${prettyName(inspectAgent.name)}`} onClose={() => setInspectAgent(null)}>
           <p className="muted">{inspectAgent.description}</p>
           <div className="setup-title" style={{ marginTop: 12 }}>Tools it may use ({(inspectAgent.tools || []).length})</div>
           <div className="chips">

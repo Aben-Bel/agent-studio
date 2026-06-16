@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { prettyName } from "../format.js";
 
 // Group the flat event stream into per-agent LANES so a parallel investigation
 // is readable: the orchestrator's dispatch/conclusion on top, then one card per
@@ -29,14 +30,14 @@ function Lane({ name, lead, events }) {
   return (
     <div className={"lane" + (lead ? " lead" : "") + " " + status}>
       <div className="lane-head">
-        <span className="lane-name">{name}</span>
+        <span className="lane-name">{prettyName(name)}</span>
         <span className={"lane-status " + status}>{status === "working" ? "working..." : status}</span>
       </div>
       {dispatched && (
         <div className="lane-dispatch">
-          routed to {(dispatched.data.agents || []).join(", ") || "(none)"}
+          routed to {(dispatched.data.agents || []).map(prettyName).join(", ") || "(none)"}
           {(dispatched.data.skipped || []).length > 0 &&
-            <span className="muted"> - skipped {dispatched.data.skipped.join(", ")} (not needed)</span>}
+            <span className="muted"> - skipped {(dispatched.data.skipped || []).map(prettyName).join(", ")} (not needed)</span>}
         </div>
       )}
       <div className="lane-steps">
@@ -57,11 +58,11 @@ export default function TraceEvent({ ev }) {
 
   let head = "";
   if (ev.type === "agent_switch") {
-    head = d.role === "recruited" ? `recruited ${d.agent}`
-      : d.role === "resumed" ? `back to ${d.agent}` : `lead ${d.agent}`;
+    head = d.role === "recruited" ? `recruited ${prettyName(d.agent)}`
+      : d.role === "resumed" ? `back to ${prettyName(d.agent)}` : `lead ${prettyName(d.agent)}`;
   } else if (ev.type === "progress") head = d.message;
   else if (ev.type === "thinking") head = (d.text || "").replace(/\s+/g, " ").slice(0, 80);
-  else if (ev.type === "tool_call") head = d.kind === "agent" ? `recruit ${(d.args || {}).agent || ""}` : d.name;
+  else if (ev.type === "tool_call") head = d.kind === "agent" ? `recruit ${prettyName((d.args || {}).agent || "")}` : d.name;
   else if (ev.type === "tool_result") head = `${d.name}`;
   else if (ev.type === "user_message") head = d.text;
   else if (ev.type === "needs_human") head = "needs human";
