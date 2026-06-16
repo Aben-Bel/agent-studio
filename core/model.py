@@ -22,6 +22,43 @@ def complete(messages, functions=None, system="", max_tokens=1100):
     return _bedrock(messages, functions or [], system, max_tokens)
 
 
+# ---------------- translation (bilingual UI: each message carries {en, de}) ----------------
+LANG_NAME = {"en": "English", "de": "German"}
+
+
+def translate(text, target_lang):
+    """Translate a finished, user-facing string into target_lang, preserving
+    Markdown, numbers, table.column references, and technical terms exactly.
+    In mock mode (offline) it returns the text unchanged so the demo still runs.
+    On any failure it returns the original text - bilingual is best-effort and
+    must never break or blank a real answer."""
+    text = text or ""
+    name = LANG_NAME.get(target_lang)
+    if not text.strip() or not name or cfg.mock_llm:
+        return text
+    try:
+        r = _bedrock(
+            [{"role": "user", "content": text}], [],
+            (f"Translate the user's message into {name}. Output ONLY the translation, "
+             "nothing else. Preserve Markdown formatting, line breaks, tables, numbers, "
+             "units, and any table.column / document / identifier references EXACTLY as "
+             "written (do not translate or alter them). Keep it natural and concise."),
+            max_tokens=1100)
+        return (r.content or "").strip() or text
+    except Exception:
+        return text
+
+
+def i18n(text, lang):
+    """Build a {en, de} pair from a string produced in `lang`. The source
+    language keeps the original; the other is translated. Lets the frontend
+    render message.text_i18n[lang] and switch language with no re-run."""
+    other = "de" if lang == "en" else "en"
+    pair = {lang: text or ""}
+    pair[other] = translate(text, other)
+    return pair
+
+
 # ---------------- offline mock (emulates tool use) ----------------
 def _called(messages):
     # Only count tools used SINCE the last human message, so each new chat turn

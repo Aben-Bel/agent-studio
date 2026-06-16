@@ -72,6 +72,118 @@ def _style(base):
     return (STYLE + "\n\n" + base) if base else STYLE
 
 
+def _with_lang(system, lang):
+    """Append a one-line directive telling the agent to answer in the user's
+    language. English is the null case (returns system unchanged) so the EN path
+    is byte-identical to before - the anti-regression guarantee."""
+    if not lang or lang == "en":
+        return system
+    name = model.LANG_NAME.get(lang)
+    if not name:
+        return system
+    return system + (f"\n\nIMPORTANT: Write your entire response to the user in {name}. "
+                     "Keep table.column references, identifiers, numbers, and units exactly "
+                     "as in the data.")
+
+
+# Which data fields of each event type are HUMAN-READABLE PROSE that must flip
+# language. Everything not listed (names, ids, formats, numbers, raw tool args)
+# stays literal. This is the single source of truth for "every possible text",
+# so adding a new event = adding one line here, and no emission site handles i18n.
+_TEXT_FIELDS = {
+    "user_message":  ["text"],
+    "final":         ["message"],
+    "needs_human":   ["question"],
+    "progress":      ["message"],
+    "thinking":      ["text"],
+    "error":         ["message"],
+    "context_added": ["text"],
+    "tool_result":   ["result"],
+    "agent_switch":  ["description", "task"],
+    "suggestions":   ["questions"],   # a LIST of strings - paired element-wise
+}
+
+
+def _localize(ev, lang):
+    """Pair every human-readable field of an event into {en, de} so the frontend
+    can switch language client-side with no re-run. For a field `X` it adds
+    `X_i18n` = {en, de}; for the `questions` list it adds `questions_i18n` =
+    {en:[...], de:[...]}. The ORIGINAL field is left untouched (back-compat:
+    an old client that ignores `_i18n` still sees the run-language text).
+
+    `lang` is the language the text was PRODUCED in; the other side is translated.
+    Offline (mock) `translate` is a no-op, so both sides equal the source - safe.
+    Best-effort: a failed translation falls back to the source string, never
+    blanks. EN-origin events are still paired (so an EN run can switch to DE)."""
+    fields = _TEXT_FIELDS.get(ev.get("type"))
+    if not fields:
+        return ev
+    d = dict(ev.get("data") or {})
+    for f in fields:
+        val = d.get(f)
+        if f == "questions":                      # list of strings (agent-produced)
+            if not val:
+                continue
+            d["questions_i18n"] = {lang: list(val),
+                                   _other(lang): [_tr(q, _other(lang)) for q in val]}
+        else:
+            if not (val or "").strip():
+                continue
+            d[f + "_i18n"] = _pair(val, lang)
+    return {"type": ev["type"], "data": d}
+
+
+def _other(lang):
+    return "de" if lang == "en" else "en"
+
+
+def _pair(text, lang):
+    """Build {en, de} for one string. KEY: orchestrator-templated strings are
+    ALWAYS English no matter the run language, so they are pinned to 'en' and
+    translated to 'de'. Agent-produced prose is in the run language (`lang`)
+    because the agent was told to answer in it. Detecting the source correctly is
+    what makes templated trace lines (progress, boilerplate) flip too."""
+    src = "en" if _is_templated(text) else lang
+    other = _other(src)
+    return {src: text, other: _tr(text, other)}
+
+
+# Orchestrator-emitted English templates (always English regardless of run lang).
+# Translated by a static map - no LLM call - so high-frequency trace lines are
+# cheap and instant. Add a line here when you add a new templated emit string.
+_PHRASE_DE = {
+    "The agent needs your input.": "Der Agent benötigt Ihre Eingabe.",
+    "(stopped after max steps)": "(nach maximalen Schritten gestoppt)",
+    "(no findings)": "(keine Erkenntnisse)",
+    "(empty)": "(leer)",
+    "(no content)": "(kein Inhalt)",
+}
+_PHRASE_EN = {v: k for k, v in _PHRASE_DE.items()}
+
+
+def _is_templated(text):
+    """True for strings the orchestrator emits verbatim in English (so their
+    source language is en, not the run language)."""
+    t = (text or "").strip()
+    return t in _PHRASE_DE or t.startswith("reasoning (step ")
+
+
+def _tr(text, target_lang):
+    """Translate one string to target_lang. Fast paths first: known templated
+    phrases and the 'reasoning (step N)' progress line are mapped statically (no
+    LLM call); everything else goes through the model translator (a no-op offline)."""
+    text = text or ""
+    if not text.strip():
+        return text
+    table = _PHRASE_DE if target_lang == "de" else _PHRASE_EN if target_lang == "en" else {}
+    if text in table:
+        return table[text]
+    if text.startswith("reasoning (step "):
+        return (text.replace("reasoning (step ", "Überlegung (Schritt ", 1)
+                if target_lang == "de" else text)
+    return model.translate(text, target_lang)
+
+
 def capabilities():
     return {
         "agents": [{"name": a.name, "description": a.description, "tools": a.tools}
@@ -132,7 +244,8 @@ def _run_subagent(parent_sess, sub_name, task):
     system = _style(agent.fn({}) if callable(agent.fn) else "")
     sub = {"chat_id": parent_sess.get("chat_id"), "agent": sub_name, "system": system,
            "msgs": [{"role": "user", "content": task}], "status": "running",
-           "pending": None, "step": 0, "inbox": []}
+           "pending": None, "step": 0, "inbox": [], "sub": True,
+           "lang": parent_sess.get("lang", "en")}
     yield {"type": "agent_switch",
            "data": {"agent": sub_name, "description": agent.description, "role": "recruited",
                     "by": parent_sess["agent"], "task": task, "depth": 1,
@@ -213,7 +326,7 @@ def _drive(sess):
         sess["step"] += 1
         yield {"type": "progress", "data": {"message": f"reasoning (step {sess['step']})"}}
         try:
-            r = model.complete(sess["msgs"], funcs, sess["system"])
+            r = model.complete(sess["msgs"], funcs, _with_lang(sess["system"], sess.get("lang", "en")))
         except Exception as e:
             sess["status"] = "error"
             yield {"type": "error", "data": {"message": str(e)}}
@@ -280,7 +393,8 @@ def _drive(sess):
         sess["msgs"].append({"role": "assistant", "content": r.content or ""})
         sess["status"] = "done"
         sess["step"] = 0                                     # fresh budget for the next turn
-        yield {"type": "final", "data": {"message": r.content or "", "chat_id": sess["chat_id"]}}
+        msg = r.content or ""
+        yield {"type": "final", "data": {"message": msg, "chat_id": sess["chat_id"]}}
         return
 
     sess["status"] = "done"
@@ -289,22 +403,26 @@ def _drive(sess):
            "data": {"message": "(stopped after max steps)", "chat_id": sess["chat_id"]}}
 
 
-def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None):
+def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None, lang="en"):
     """Stateful entry point used by the API. Starts a new chat or continues an
     existing one by chat_id. The human's `message` either opens a new turn or
     answers a pending `ask_human` pause. Optional tool/source restrictions scope
-    the run, matching the team mode."""
+    the run, matching the team mode. `lang` adds a {en, de} `text_i18n` pair to
+    user-facing events so the frontend can switch language with no re-run; the
+    single agent is told to answer in `lang`."""
     sess = SESSIONS.get(chat_id)
     if sess is None:
         sess = _new_session(chat_id, agent_name)
         sess["allow_tools"] = set(allow_tools) if allow_tools else None
+        sess["lang"] = lang
         runs.start_run(chat_id, agent_name)
         agent = AGENTS.get(agent_name)
-        ev = {"type": "agent_switch",
-              "data": {"agent": agent.name, "description": agent.description,
-                       "chat_id": chat_id}}
+        ev = _localize({"type": "agent_switch",
+                        "data": {"agent": agent.name, "description": agent.description,
+                                 "chat_id": chat_id}}, lang)
         runs.record(chat_id, ev)
         yield ev
+    sess["lang"] = lang   # honour the language chosen for THIS turn
 
     if sess.get("pending"):
         # Resuming a human-in-the-loop pause: the reply is the tool's result.
@@ -316,10 +434,15 @@ def start_or_resume(chat_id, agent_name, message, allow_tools=None, sources=None
                   f"{', '.join(sources)}. Ignore any not listed.\n\n{message}"
                   if sources else message)
         sess["msgs"].append({"role": "user", "content": scoped})
-        runs.record(chat_id, {"type": "user_message", "data": {"text": message}})
+        ev = _localize({"type": "user_message", "data": {"text": message}}, lang)
+        runs.record(chat_id, ev)
+        yield ev
 
     # Every streamed event is persisted to the audit trail (full visibility).
+    # _localize pairs each event's text into {en, de} so the whole transcript +
+    # trace can switch language client-side with no re-run.
     for ev in _drive(sess):
+        ev = _localize(ev, lang)
         runs.record(chat_id, ev)
         yield ev
     runs.finish_run(chat_id, sess["status"])
@@ -334,25 +457,31 @@ TEAM_SESSIONS: dict = {}    # chat_id -> [{"task", "synthesis"}] for follow-up c
 CLARIFY_PENDING: dict = {}  # chat_id -> {"task"} when the team asked the user to clarify
 
 
-def suggest_questions(context=""):
+def suggest_questions(context="", lang="en"):
     """A few short questions to help the user (initial starters, or follow-ups).
-    Data-aware: knows what tables/documents are loaded. Returns <= 4 questions."""
+    Data-aware: knows what tables/documents are loaded. Returns <= 4 questions.
+    `lang` makes the questions come out in the user's language."""
     from connectors import datastore, memory
     tables = [t for s in datastore.list_sources() for t in s["tables"]]
     docs = [d["source"] for d in memory.list_documents()]
-    fallback = ["What can you do?",
-                "Which process step has the most defects?",
-                "What is the top defect driver?"]
+    fallback_en = ["What can you do?",
+                   "Which process step has the most defects?",
+                   "What is the top defect driver?"]
+    fallback_de = ["Was kannst du tun?",
+                   "Welcher Prozessschritt hat die meisten Defekte?",
+                   "Was ist der Hauptverursacher von Defekten?"]
+    fallback = fallback_de if lang == "de" else fallback_en
     if cfg.mock_llm:
         return fallback
     info = f"Loaded tables: {', '.join(tables) or 'none'}. Documents: {', '.join(docs) or 'none'}."
+    answer_lang = "" if lang == "en" else f" Write the questions in {model.LANG_NAME.get(lang, 'English')}."
     try:
         r = model.complete(
             [{"role": "user", "content":
               f"{info}\n{context}\n\nSuggest 3 short, specific questions a yield-analysis "
               "engineer might ask next given this data. Each under 9 words, concrete. "
               "One per line, no numbering, no quotes."}],
-            [], "You suggest concise, useful next questions. Output only the questions.")
+            [], "You suggest concise, useful next questions. Output only the questions." + answer_lang)
         qs = [ln.strip("-*0123456789. \"'") for ln in (r.content or "").splitlines() if ln.strip()]
         qs = [q for q in qs if 3 < len(q) < 90][:4]
         return qs or fallback
@@ -403,10 +532,15 @@ def _needs_clarification(task, results):
     return out.split(":", 1)[1].strip() if out.upper().startswith("CLARIFY:") else None
 
 
-def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
+def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, lang="en"):
     """Run multiple agents IN PARALLEL on the same task, stream their interleaved
     steps, then EITHER ask the user one clarifying question (if the input was
-    ambiguous) OR synthesize one concise conclusion."""
+    ambiguous) OR synthesize one concise conclusion.
+
+    `lang` is the UI language: the investigation runs once and its user-facing
+    text (echoed question, clarifying question, synthesis, suggestions) is emitted
+    with a `text_i18n` {en, de} pair so the frontend can switch language with no
+    re-run. Internals (tool calls, per-agent reasoning) are not translated."""
     names = [n for n in (agent_names or specialist_agents()) if n in AGENTS.all()]
     if not names:
         names = specialist_agents()
@@ -432,6 +566,10 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
 
     runs.start_run(chat_id, "team")
     def emit(ev):
+        # Single chokepoint: pair EVERY event's text into {en, de} before it is
+        # recorded + streamed, so a language switch flips the whole transcript and
+        # trace with no re-run. No emission site needs to know about i18n.
+        ev = _localize(ev, lang)
         runs.record(chat_id, ev)
         return ev
 
@@ -455,7 +593,7 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
             sub = {"chat_id": chat_id, "agent": name, "system": system,
                    "msgs": [{"role": "user", "content": prompt}], "status": "running",
                    "pending": None, "step": 0, "inbox": [], "allow_tools": allow,
-                   "no_pause": True}
+                   "no_pause": True, "lang": lang, "sub": True}
             q.put({"type": "agent_switch",
                    "data": {"agent": name, "role": "working", "depth": 1, "agent_scope": name}})
             final = ""
@@ -489,8 +627,9 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
     if len(names) > 1 and not skip_clarify:
         cq = _needs_clarification(task, results)
         if cq:
-            CLARIFY_PENDING[chat_id] = {"task": task}
-            yield emit({"type": "needs_human", "data": {"question": cq, "chat_id": chat_id}})
+            CLARIFY_PENDING[chat_id] = {"task": task, "lang": lang}
+            yield emit({"type": "needs_human",
+                        "data": {"question": cq, "chat_id": chat_id}})
             runs.finish_run(chat_id, "awaiting_human")
             return
 
@@ -498,23 +637,27 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None):
     if len(names) == 1:
         synthesis = list(results.values())[0] or "(no findings)"
     else:
-        synthesis = _synthesize(task, results)
+        synthesis = _synthesize(task, results, lang)
     history.append({"task": task, "synthesis": synthesis})
     runs.finish_run(chat_id, "done")
-    yield emit({"type": "final", "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True}})
+    yield emit({"type": "final",
+                "data": {"message": synthesis, "chat_id": chat_id, "synthesis": True}})
     try:
-        sg = suggest_questions(f"Question: {user_msg}\nConclusion: {synthesis[:400]}")
+        sg = suggest_questions(f"Question: {user_msg}\nConclusion: {synthesis[:400]}", lang)
         yield emit({"type": "suggestions", "data": {"questions": sg}})
     except Exception:
         pass
 
 
-def _synthesize(task, results):
+def _synthesize(task, results, lang="en"):
     """One brief conclusion from the parallel specialists. The full per-specialist
-    detail is in the trace, so we do NOT dump it here (that was the verbosity)."""
+    detail is in the trace, so we do NOT dump it here (that was the verbosity).
+    `lang` makes the conclusion come out in the user's language natively (the
+    other language is translated downstream for the {en, de} pair)."""
     findings = "\n\n".join(f"{n}: {r}" for n, r in results.items())
     if cfg.mock_llm:
         return "Combined findings:\n" + "\n".join(f"- {n}: {(r or '')[:140]}" for n, r in results.items())
+    answer_lang = "" if lang == "en" else f" Write your entire answer in {model.LANG_NAME.get(lang, 'English')}."
     try:
         r = model.complete(
             [{"role": "user", "content":
@@ -523,7 +666,7 @@ def _synthesize(task, results):
               "single most likely cause only if relevant. Cite the table.column or "
               "document behind each point. Do NOT repeat the specialists' full text and "
               "do NOT add extra sections."}],
-            [], _style("You are the lead RCA investigator. Be brief."))
+            [], _style("You are the lead RCA investigator. Be brief." + answer_lang))
         concl = (r.content or "").strip()
     except Exception:
         concl = ""
@@ -586,12 +729,12 @@ def list_sessions():
 # Legacy stateless entry point (kept for existing tests and the old contract):
 # runs to completion with no persisted session.
 # ----------------------------------------------------------------------------
-def run(agent_name, message, history=None):
+def run(agent_name, message, history=None, lang="en"):
     agent = AGENTS.get(agent_name)
     system = _style(agent.fn({}) if callable(agent.fn) else "")
     sess = {"chat_id": None, "agent": agent_name, "system": system,
             "msgs": list(history or []) + [{"role": "user", "content": message}],
-            "status": "running", "pending": None, "step": 0, "inbox": []}
+            "status": "running", "pending": None, "step": 0, "inbox": [], "lang": lang}
     yield {"type": "agent_switch",
            "data": {"agent": agent.name, "description": agent.description}}
     yield from _drive(sess)

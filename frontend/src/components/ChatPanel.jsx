@@ -26,7 +26,11 @@ function jaccard(a, b) {
 // kept PER TURN so previous turns are never wiped on a reply. One input: while it
 // works your text is ADDED CONTEXT, once it is done it is a REPLY.
 export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, refreshCaps }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  // Pick the right language for a message that carries a {en, de} pair, falling
+  // back to the plain text (older events / not-yet-translated). Reading lang here
+  // means a language toggle instantly re-renders the whole history - no re-run.
+  const pick = (i18nMap, fallback) => (i18nMap && (i18nMap[lang] || i18nMap.en)) || fallback || "";
   const specialists = (caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent"));
   const allTools = [...(caps.tools || []), ...(caps.skills || [])];
 
@@ -85,9 +89,13 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   }
   useEffect(() => { loadSources(); }, []);
   useEffect(() => {
+    // Only the empty-state starter chips are (re)fetched on language change.
+    // Follow-up suggestions after a turn already carry a {en, de} map and switch
+    // locally, so we don't refetch and clobber them.
+    if (messages.length) return;
     setSuggLoading(true);
-    getSuggestions().then((s) => setSuggestions(s.questions || [])).catch(() => {}).finally(() => setSuggLoading(false));
-  }, []);
+    getSuggestions(lang).then((s) => setSuggestions(s.questions || [])).catch(() => {}).finally(() => setSuggLoading(false));
+  }, [lang]); // eslint-disable-line
   useEffect(() => { getExportFormats().then((r) => setExportFormats(r.formats || [])).catch(() => {}); }, []);
   function askSuggestion(q) {
     if (busy) return;
@@ -124,7 +132,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   function buildTurns(steps) {
     const ts = []; let cur = null;
     for (const s of steps) {
-      if (s.type === "user_message") { cur = { question: s.data.text, events: [] }; ts.push(cur); }
+      if (s.type === "user_message") { cur = { question: s.data.text, questionI18n: s.data.text_i18n, events: [] }; ts.push(cur); }
       else { if (!cur) { cur = { question: "", events: [] }; ts.push(cur); } cur.events.push({ type: s.type, data: s.data, ts: s.ts }); }
     }
     return ts;
@@ -136,8 +144,8 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
       setTurns(buildTurns(r.steps));
       const msgs = [];
       for (const s of r.steps) {
-        if (s.type === "user_message") msgs.push({ role: "user", text: s.data.text });
-        else if (s.type === "final" && !s.data.depth) msgs.push({ role: "assistant", text: s.data.message });
+        if (s.type === "user_message") msgs.push({ role: "user", text: s.data.text, i18n: s.data.text_i18n });
+        else if (s.type === "final" && !s.data.depth) msgs.push({ role: "assistant", text: s.data.message, i18n: s.data.message_i18n });
         else if (s.type === "artifact" && !msgs.some((x) => x.role === "artifact" && x.format === s.data.format))
           msgs.push({ role: "artifact", format: s.data.format, label: s.data.label,
                       extension: s.data.extension, available: s.data.available !== false });
@@ -251,25 +259,33 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
     setSuggestions([]); setSuggLoading(true);
     const ac = new AbortController(); abortRef.current = ac;
 
-    let answer = "", paused = null, errored = null;
+    // answer/paused hold the {en, de} pair when the backend supplied one, so a
+    // later language toggle re-renders them from storage with no re-run.
+    let answer = null, answerI18n = null, paused = null, pausedI18n = null, errored = null;
     try {
       await runChat(
         { agent: "team", message, chat_id: chatId, agents,
           allow_tools: tools === null ? undefined : tools,
-          sources: scopedSources() },
+          sources: scopedSources(), lang },
         (ev) => {
           if (ev.type !== "user_message") appendEvent(ev);
           const d = ev.data || {}; const who = d.agent_scope ? prettyName(d.agent_scope) + ": " : "";
+          // Backfill the just-shown user bubble + turn with their {en,de} pair so
+          // the typed question also flips on a language switch.
+          if (ev.type === "user_message" && d.text_i18n) {
+            setMessages((m) => { const c = m.slice(); for (let i = c.length - 1; i >= 0; i--) { if (c[i].role === "user" && !c[i].i18n) { c[i] = { ...c[i], i18n: d.text_i18n }; break; } } return c; });
+            setTurns((tt) => { if (!tt.length) return tt; const c = tt.slice(); const last = c[c.length - 1]; c[c.length - 1] = { ...last, questionI18n: d.text_i18n }; return c; });
+          }
           if (ev.type === "agent_switch" && d.role === "dispatch") setStatus("dispatched to " + (d.agents || []).map(prettyName).join(", "));
           else if (ev.type === "agent_switch" && d.role === "working") setStatus(prettyName(d.agent) + " started");
           else if (ev.type === "progress") setStatus(who + d.message);
           else if (ev.type === "thinking") setStatus(who + "reasoning...");
           else if (ev.type === "tool_call") setStatus(who + "using " + d.name);
           else if (ev.type === "tool_result") setStatus(who + d.name + " done");
-          if (ev.type === "final" && !d.depth) answer = d.message;
-          if (ev.type === "needs_human") paused = d.question;
+          if (ev.type === "final" && !d.depth) { answer = d.message; answerI18n = d.message_i18n; }
+          if (ev.type === "needs_human") { paused = d.question; pausedI18n = d.question_i18n; }
           if (ev.type === "error" && !d.agent_scope) errored = d.message;
-          if (ev.type === "suggestions") { setSuggestions(d.questions || []); setSuggLoading(false); }
+          if (ev.type === "suggestions") { setSuggestions(d.questions_i18n || d.questions || []); setSuggLoading(false); }
           if (ev.type === "artifact") setMessages((m) =>
             m.some((x) => x.role === "artifact" && x.format === d.format) ? m
               : [...m, { role: "artifact", format: d.format, label: d.label,
@@ -280,8 +296,8 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
       errored = String(e.message || e);
     }
     abortRef.current = null; setStatus("");
-    if (paused) { setMessages((m) => [...m, { role: "assistant", text: paused, pending: true }]); setAwaiting(paused); }
-    else if (answer) setMessages((m) => [...m, { role: "assistant", text: answer }]);
+    if (paused) { setMessages((m) => [...m, { role: "assistant", text: paused, i18n: pausedI18n, pending: true }]); setAwaiting(pausedI18n || paused); }
+    else if (answer) setMessages((m) => [...m, { role: "assistant", text: answer, i18n: answerI18n }]);
     else if (errored) { setError(errored); setMessages((m) => [...m, { role: "assistant", text: "Error: " + errored, error: true }]); }
     else setMessages((m) => [...m, { role: "assistant", text: "_(no answer was produced)_" }]);
     setBusy(false); setSuggLoading(false);
@@ -298,9 +314,15 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const stop = () => abortRef.current && abortRef.current.abort();
   const retry = () => { if (lastMsg) { setError(null); run(lastMsg); } };
 
+  // Suggestions may arrive as a flat array (starters / older events) OR as a
+  // {en, de} map (live follow-ups). Resolve to the current language so a toggle
+  // swaps the whole chip set with no re-fetch.
+  const langSuggestions = Array.isArray(suggestions)
+    ? suggestions
+    : (suggestions[lang] || suggestions.en || []);
   // Don't suggest a question the user already asked this chat (exact or near-dup).
-  const askedNorm = messages.filter((m) => m.role === "user").map((m) => norm(m.text));
-  const freshSuggestions = suggestions.filter((q) => {
+  const askedNorm = messages.filter((m) => m.role === "user").map((m) => norm(pick(m.i18n, m.text)));
+  const freshSuggestions = langSuggestions.filter((q) => {
     const nq = norm(q);
     return !askedNorm.some((a) => a === nq || jaccard(a, nq) > 0.6);
   });
@@ -456,7 +478,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
                   </div>
                 : <div key={i} className={"msg " + m.role + (m.pending ? " pendingq" : "") + (m.error ? " errmsg" : "")}>
                     {m.pending && <span className="ask">needs your input</span>}
-                    {m.role === "assistant" ? <Md>{m.text}</Md> : m.text}
+                    {m.role === "assistant" ? <Md>{pick(m.i18n, m.text)}</Md> : pick(m.i18n, m.text)}
                   </div>
             ))}
             {busy && <div className="statusline"><span className="spin" /> {status || "working..."}</div>}
@@ -505,7 +527,7 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
           {turns.length === 0 && <div className="feed-empty muted small">{t("stepsAppear")}</div>}
           {turns.map((turn, i) => (
             <div key={i} className="turn-block">
-              {turn.question && <div className="turn-q" title={turn.question}>{turn.question}</div>}
+              {turn.question && <div className="turn-q" title={pick(turn.questionI18n, turn.question)}>{pick(turn.questionI18n, turn.question)}</div>}
               <TraceLanes events={turn.events} leadLabel="orchestrator" />
             </div>
           ))}

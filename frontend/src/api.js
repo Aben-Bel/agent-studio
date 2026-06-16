@@ -66,8 +66,9 @@ export async function getRuns() {
 }
 
 // Suggested starter questions (data-aware) for the empty state.
-export async function getSuggestions() {
-  const r = await fetch(`${BASE}/suggest`);
+export async function getSuggestions(lang) {
+  const q = lang ? `?lang=${encodeURIComponent(lang)}` : "";
+  const r = await fetch(`${BASE}/suggest${q}`);
   return r.json();
 }
 
@@ -181,11 +182,11 @@ export async function createAgent(agent) {
 
 // Streams orchestrator events. Pass chat_id to keep a stateful, resumable
 // session (memory + human-in-the-loop). onEvent is called for each {type, data}.
-export async function runChat({ agent, message, history, chat_id, agents, allow_tools, sources }, onEvent, signal) {
+export async function runChat({ agent, message, history, chat_id, agents, allow_tools, sources, lang }, onEvent, signal) {
   const res = await fetch(`${BASE}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, message, history: history || [], chat_id, agents, allow_tools, sources }),
+    body: JSON.stringify({ agent, message, history: history || [], chat_id, agents, allow_tools, sources, lang }),
     signal,
   });
   const reader = res.body.getReader();

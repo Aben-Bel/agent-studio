@@ -24,14 +24,14 @@ def run(req: RunRequest):
         if len(agents) == 1:
             # one agent -> stateful single run (supports ask_human pause/resume)
             stream = orchestrator.start_or_resume(req.chat_id or agents[0], agents[0],
-                                                  req.message, req.allow_tools, req.sources)
+                                                  req.message, req.allow_tools, req.sources, req.lang)
         elif req.agent == "team" or agents:
             stream = orchestrator.run_team(req.chat_id or "team", req.message,
-                                           agents, req.allow_tools, req.sources)
+                                           agents, req.allow_tools, req.sources, req.lang)
         elif req.chat_id:
-            stream = orchestrator.start_or_resume(req.chat_id, req.agent, req.message)
+            stream = orchestrator.start_or_resume(req.chat_id, req.agent, req.message, lang=req.lang)
         else:
-            stream = orchestrator.run(req.agent, req.message, req.history)
+            stream = orchestrator.run(req.agent, req.message, req.history, req.lang)
         for ev in stream:
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
