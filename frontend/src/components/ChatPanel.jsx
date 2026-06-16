@@ -28,11 +28,19 @@ function jaccard(a, b) {
 // kept PER TURN so previous turns are never wiped on a reply. One input: while it
 // works your text is ADDED CONTEXT, once it is done it is a REPLY.
 export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, refreshCaps }) {
-  const { t, lang, setSyncing } = useI18n();
-  // Pick the right language for a message that carries a {en, de} pair, falling
-  // back to the plain text (older events / not-yet-translated). Reading lang here
-  // means a language toggle instantly re-renders the whole history - no re-run.
-  const pick = (i18nMap, fallback) => (i18nMap && (i18nMap[lang] || i18nMap.en)) || fallback || "";
+  const { t, lang } = useI18n();
+  // Pick the text for the current language from a {en, de} pair. Translation is a
+  // background ADD-ON: if the requested language isn't filled yet, fall back to
+  // whatever language IS available (the run language) - NEVER blank. So the UI
+  // always shows readable text and silently upgrades when the translation lands.
+  const pick = (i18nMap, fallback) => {
+    if (i18nMap) {
+      const v = i18nMap[lang] || i18nMap.en || i18nMap.de
+        || Object.values(i18nMap).find((x) => (x || "").trim());
+      if ((v || "").trim()) return v;
+    }
+    return fallback || "";
+  };
   const specialists = (caps.agents || []).filter((a) => !(a.tools || []).includes("consult_agent"));
   // Resolve each tool/skill's description + limits to the CURRENT language from the
   // {en, de} pairs the backend ships (description_i18n / limits_i18n). No refetch -
@@ -180,14 +188,6 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   }
   useEffect(() => { if (stickMsg.current && msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight; }, [messages, status]);
   useEffect(() => { if (stickFeed.current && feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [turns]);
-  // Show the "translating…" spinner by the language toggle while any visible message has
-  // a {en,de} pair but no text yet for the CURRENT language (its background translation
-  // is still streaming in). Clears automatically as translation_update events fill them.
-  useEffect(() => {
-    const pending = messages.some((m) => m.i18n && !((m.i18n[lang] || "").trim()));
-    setSyncing(pending);
-    return () => setSyncing(false);
-  }, [messages, lang, setSyncing]);
 
   const toggle = (list, set, n) => set(list.includes(n) ? list.filter((x) => x !== n) : [...list, n]);
   const toolOn = (n) => (tools === null ? true : tools.includes(n));
@@ -344,11 +344,21 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
             // translation_update events). Mark it answered so post-loop doesn't double-add.
             answer = d.message; answerI18n = d.message_i18n; references = d.references || []; answerShown = true;
             setMessages((m) => [...m, { role: "assistant", text: d.message, i18n: d.message_i18n, references: d.references || [], eid: d.eid }]);
+            // The answer is on screen — stop showing the "working…" status line. The
+            // stream stays open for SILENT background translation; the user is not told.
+            setBusy(false); setStatus("");
           }
-          // Background translation arrived for an already-shown event: patch its other-language side in place.
+          // Background translation arrived for an already-shown event: patch its
+          // other-language side in place. `questions` (a list) targets the
+          // suggestions chips; everything else targets a message's {en,de} pair.
           if (ev.type === "translation_update") {
-            setMessages((m) => m.map((x) => x.eid && x.eid === d.eid && x.i18n
-              ? { ...x, i18n: { ...x.i18n, [d.lang]: d.text } } : x));
+            if (d.field === "questions" && Array.isArray(d.text)) {
+              setSuggestions((s) => (s && !Array.isArray(s))
+                ? { ...s, [d.lang]: d.text } : s);
+            } else {
+              setMessages((m) => m.map((x) => x.eid && x.eid === d.eid && x.i18n
+                ? { ...x, i18n: { ...x.i18n, [d.lang]: d.text } } : x));
+            }
           }
           if (ev.type === "needs_human") { paused = d.question; pausedI18n = d.question_i18n; }
           if (ev.type === "error" && !d.agent_scope) errored = d.message;
@@ -382,11 +392,21 @@ export default function ChatPanel({ caps, chatId, initialAgents = [], onBack, re
   const retry = () => { if (lastMsg) { setError(null); run(lastMsg); } };
 
   // Suggestions may arrive as a flat array (starters / older events) OR as a
-  // {en, de} map (live follow-ups). Resolve to the current language so a toggle
-  // swaps the whole chip set with no re-fetch.
-  const langSuggestions = Array.isArray(suggestions)
-    ? suggestions
-    : (suggestions[lang] || suggestions.en || []);
+  // {en, de} map (live follow-ups). Resolve to the current language PER ITEM with
+  // fallback: the other-language side may still be empty (background translation
+  // not landed yet), so each chip falls back to whatever language it has - never
+  // a blank chip. This is what keeps "Try asking" from breaking on a switch.
+  const langSuggestions = (() => {
+    if (Array.isArray(suggestions)) return suggestions;
+    const cur = suggestions[lang] || [], en = suggestions.en || [], de = suggestions.de || [];
+    const len = Math.max(cur.length, en.length, de.length);
+    const out = [];
+    for (let i = 0; i < len; i++) {
+      const q = (cur[i] || "").trim() || (en[i] || "").trim() || (de[i] || "").trim();
+      if (q) out.push(q);
+    }
+    return out;
+  })();
   // Don't suggest a question the user already asked this chat (exact or near-dup).
   const askedNorm = messages.filter((m) => m.role === "user").map((m) => norm(pick(m.i18n, m.text)));
   const freshSuggestions = langSuggestions.filter((q) => {

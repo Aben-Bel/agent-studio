@@ -141,14 +141,6 @@ def turn_references(chat_id):
     return refs
 
 
-_SUP = {"0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
-        "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"}
-
-
-def _superscript(n):
-    return "".join(_SUP[c] for c in str(n))
-
-
 def _salient_tokens(text):
     """The verifiable tokens in a piece of text: numbers (incl. decimals, %, sci-notation)
     and multi-char identifiers (column/step/table names). These are what a claim and its
@@ -232,19 +224,22 @@ def cite_conclusion(text, references):
                 if (s_nums & r_nums) or len(s_idents & r_idents) >= 2:
                     hits.append(idx)
             if hits:
+                # Bracketed markers like [1][2][17] — readable even when several stack on
+                # one sentence (unicode superscripts ran together into an unreadable blur).
                 marks = ""
                 for idx in hits:
                     if idx not in used_order:
                         used_order.append(idx)
-                    marks += _superscript(used_order.index(idx) + 1)
-                # place the marker before the sentence's closing punctuation
+                    marks += f"[{used_order.index(idx) + 1}]"
+                # place the marker before the sentence's closing punctuation, with a thin
+                # space so it doesn't touch the last word
                 m = re.search(r'[.!?]+$', sentence.rstrip())
                 if m:
                     cut = sentence.rstrip()
-                    sentence = cut[:m.start()] + marks + cut[m.start():] + \
+                    sentence = cut[:m.start()] + " " + marks + cut[m.start():] + \
                         sentence[len(sentence.rstrip()):]
                 else:
-                    sentence = sentence + marks
+                    sentence = sentence + " " + marks
         out.append(sentence)
         if tail:
             out.append(tail)
