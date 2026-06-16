@@ -2,10 +2,13 @@
 
 Answers 'at what temperature / pressure / gas_flow range do defects spike?'
 — the key insight for a process engineer deciding where to tighten tolerances."""
+from typing import Any, Optional
+
 import pandas as pd
 from pydantic import BaseModel
 from core.declare import tool
 from connectors import datastore
+from tools.rca import stats_core as sc
 
 
 class ParamBinArgs(BaseModel):
@@ -13,6 +16,8 @@ class ParamBinArgs(BaseModel):
     parameter: str = "temperature_c"
     defect_col: str = "defect_label"
     bins: int = 5
+    # Optional row scope: {"column": "lot_id", "values": ["LOT_B"]} or a list of these.
+    scope: Optional[Any] = None
 
 
 @tool(
@@ -20,7 +25,7 @@ class ParamBinArgs(BaseModel):
     "Bucket a numeric process parameter into equal-width ranges and compute the "
     "defect rate per bucket. Reveals at which value range defects spike — e.g. "
     "'temperature above 465°C has 5x higher defect rate'. Use to find the danger "
-    "zone for any parameter.",
+    "zone for any parameter. Optional scope ({column, values}) restricts to a subset.",
     ParamBinArgs,
     owner="akhil",
     tags=["defect", "parameter", "binning", "yield"],
@@ -31,6 +36,7 @@ def parameter_bin_analysis(
     parameter="temperature_c",
     defect_col="defect_label",
     bins=5,
+    scope=None,
 ):
     try:
         cols, rows = datastore.run_sql(f'SELECT * FROM "{table}"')
@@ -40,6 +46,11 @@ def parameter_bin_analysis(
         return f"No rows in '{table}'."
 
     df = pd.DataFrame(rows, columns=cols)
+    df, scope_labels, serr = sc.apply_scope(df, scope)
+    if serr:
+        return f"Invalid scope: {serr}."
+    if scope and not len(df):
+        return f"Scope {scope_labels} matched no rows in '{table}'."
     missing = [c for c in [parameter, defect_col] if c not in df.columns]
     if missing:
         return (f"Column(s) not found: {', '.join(missing)}. "
@@ -65,8 +76,9 @@ def parameter_bin_analysis(
         mult = worst["defect_rate_%"] / baseline
         multiplier = f" ({mult:.1f}x baseline rate)"
 
+    scope_str = f" | scope: {', '.join(scope_labels)}" if scope_labels else ""
     lines = [
-        f"Parameter bin analysis — {parameter} vs {defect_col} | table: {table}",
+        f"Parameter bin analysis — {parameter} vs {defect_col} | table: {table}{scope_str}",
         "",
         grp.to_string(index=False),
         "",

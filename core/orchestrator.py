@@ -69,6 +69,14 @@ STYLE = (
     "'insufficient/degenerate data' result, REPORT THAT NULL plainly — name no culprit and "
     "do not substitute a narrative. A confounded variable must be reported as confounded, "
     "not as a cause.\n"
+    "- RESULT KIND IS NOT FUNGIBLE: a tested null (no significant association), an "
+    "insufficient/degenerate result, and a target you did NOT analyze are three DIFFERENT "
+    "states. Never present a not-analyzed or insufficient target as a tested null. If you "
+    "could not analyze a named target (ran out of steps, no scoped result), say 'not "
+    "analyzed' and suggest asking it on its own — do not imply it was tested and clean.\n"
+    "- For a within-group/within-lot driver question, use a scoped test (e.g. "
+    "driver_within_scope with scope={column,values}); do not answer a within-group "
+    "question from a whole-table scan.\n"
     "- If something is unknown, missing, or a tool is not implemented, say so in one line.\n"
     "- If the user asks to download, export, save, or get a PDF / slide deck / "
     "presentation / report / document of the findings, CALL the prepare_download tool "
@@ -365,12 +373,46 @@ def _specs(names):
     return out
 
 
-def _dispatch(name, args):
-    """A failing tool/skill returns an error string; the agent continues."""
+# Result `kind`s that carry a typed statistical verdict worth rolling up per target.
+_TYPED_KINDS = {"finding", "no_significant_association", "insufficient_data",
+                "incompatible_data"}
+
+
+def _typed_record(name, args, obj):
+    """Build a typed per-target record {target, kind, stat, evidence} from a stats
+    tool's structured result, or None if this result isn't a typed verdict. `target`
+    is the scope/group the verdict pertains to (the scope label, else the table) — so
+    the roll-up can show one row per analyzed target and mark unreached ones
+    not_analyzed. Schema-agnostic: reads only generic fields the stats core emits."""
+    if not isinstance(obj, dict):
+        return None
+    kind = obj.get("kind")
+    if kind not in _TYPED_KINDS:
+        return None
+    detail = obj.get("detail") if isinstance(obj.get("detail"), dict) else obj
+    scope = obj.get("scope") or detail.get("scope_labels") or []
+    target = ", ".join(scope) if scope else (args or {}).get("table") or detail.get("table") or "all rows"
+    # A compact stat headline pulled from whatever the result exposes.
+    stat = (obj.get("summary") or detail.get("reason") or "").strip().splitlines()
+    return {"target": target, "kind": kind, "tool": name,
+            "stat": (stat[-1] if stat else ""), "evidence": obj.get("summary", "")}
+
+
+def _dispatch(name, args, sink=None):
+    """A failing tool/skill returns an error string; the agent continues.
+    When `sink` (a list) is given, a typed per-target record is appended for any
+    stats tool that returned a structured verdict — preserving the finding/null/
+    insufficient distinction UNFLATTENED for the per-target roll-up, while the agent
+    still receives the human string."""
     try:
         if name in TOOLS.all():
             t = TOOLS.get(name)
-            return str(t.fn(**t.args(**args).model_dump()))
+            obj = t.fn(**t.args(**args).model_dump())
+            if sink is not None:
+                rec = _typed_record(name, args, obj)
+                if rec:
+                    sink.append(rec)
+            return str(obj)
         if name in SKILLS.all():
             fn = SKILLS.get(name).fn
             params = inspect.signature(fn).parameters
@@ -528,7 +570,9 @@ def _drive(sess):
                     task = args.get("task") or args.get("question") or ""
                     result = yield from _run_subagent(sess, sub, task)
                 else:
-                    result = _dispatch(name, tc["arguments"])
+                    # Typed stats verdicts are collected on the session for the
+                    # per-target roll-up (Option C) - unflattened alongside the string.
+                    result = _dispatch(name, tc["arguments"], sess.setdefault("typed", []))
 
                 # Full result flows to the UI + audit trail (the trace truncates for
                 # display but lets you expand to see exactly what happened).
@@ -825,6 +869,8 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
 
     q = Queue()
     results = {}
+    typed_records = []            # Option C: typed per-target verdicts across all agents
+    stopped_short = set()         # agents that hit max_steps (their targets may be unreached)
 
     def work(name):
         # Scope is thread-local: set it INSIDE each agent's worker thread so every data
@@ -837,7 +883,7 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
             sub = {"chat_id": chat_id, "agent": name, "system": system,
                    "msgs": [{"role": "user", "content": prompt}], "status": "running",
                    "pending": None, "step": 0, "inbox": [], "allow_tools": allow,
-                   "no_pause": True, "lang": lang, "sub": True}
+                   "no_pause": True, "lang": lang, "sub": True, "typed": []}
             q.put({"type": "agent_switch",
                    "data": {"agent": name, "role": "working", "depth": 1, "agent_scope": name}})
             final = ""
@@ -847,6 +893,10 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
                 if ev["type"] == "final":
                     final = ev["data"].get("message", "")
             results[name] = final
+            if "(stopped after max steps)" in (final or ""):
+                stopped_short.add(name)
+            for rec in sub.get("typed", []):
+                typed_records.append({**rec, "agent": name})
         except Exception as e:
             results[name] = f"(error: {e})"
             q.put({"type": "error", "data": {"agent_scope": name, "depth": 1, "message": str(e)}})
@@ -877,11 +927,19 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
             runs.finish_run(chat_id, "awaiting_human")
             return
 
+    # Per-target roll-up table (Option C): one row per analyzed target with its typed
+    # kind, plus an explicit not_analyzed row for any target named in the question that
+    # produced no verdict (and a budget note when an agent hit max_steps). Rendered
+    # ABOVE the synthesized prose so a finding / genuine null / not-analyzed never blur.
+    rollup = _rollup_table(task, typed_records, bool(stopped_short))
+
     # One agent selected -> return its findings directly; 2+ -> synthesize across them.
     if len(names) == 1:
         synthesis = list(results.values())[0] or "(no findings)"
     else:
         synthesis = _synthesize(task, results, lang)
+    if rollup:
+        synthesis = rollup + "\n\n" + synthesis
     history.append({"task": task, "synthesis": synthesis})
     # Citable evidence for THIS turn: the exact tool calls + real results behind the
     # answer. Each claim is tied to the specific result that supports it (deterministic
@@ -913,6 +971,44 @@ def run_team(chat_id, task, agent_names=None, allow_tools=None, sources=None, la
         yield tu
 
 
+_KIND_LABEL = {"finding": "finding", "no_significant_association": "genuine null",
+               "insufficient_data": "insufficient", "incompatible_data": "incompatible",
+               "not_analyzed": "not analyzed"}
+
+
+def _rollup_table(task, typed_records, any_stopped_short):
+    """Render the typed per-target verdicts as a compact table — one row per
+    (target, the strongest verdict for it). Adds an explicit `not_analyzed` note
+    when an agent ran out of budget, so an unreached target is never silently
+    presented as a tested null. Returns '' when there is nothing typed to show.
+
+    Schema-agnostic and decomposition-free (no Option B): targets are taken from
+    the verdicts the tools actually produced; we do not parse target names from the
+    question. The honest gap we CAN assert is budget exhaustion."""
+    if not typed_records:
+        if any_stopped_short:
+            return ("Per-target results: an analyst stopped after its step budget — "
+                    "some targets are **not analyzed** (re-ask them individually).")
+        return ""
+    # Strongest verdict per target: finding > null > insufficient > incompatible.
+    rank = {"finding": 3, "no_significant_association": 2,
+            "insufficient_data": 1, "incompatible_data": 0}
+    best = {}
+    for r in typed_records:
+        t = r["target"]
+        if t not in best or rank.get(r["kind"], -1) > rank.get(best[t]["kind"], -1):
+            best[t] = r
+    lines = ["Per-target results (kind = finding / genuine null / insufficient / not analyzed):"]
+    for t, r in best.items():
+        label = _KIND_LABEL.get(r["kind"], r["kind"])
+        stat = (r.get("stat") or "").strip()
+        lines.append(f"- {t}: **{label}**" + (f" — {stat}" if stat else ""))
+    if any_stopped_short:
+        lines.append("- (an analyst hit its step budget; any target not listed above is "
+                     "**not analyzed**, not a null — re-ask it individually)")
+    return "\n".join(lines)
+
+
 def _synthesize(task, results, lang="en"):
     """One brief conclusion from the parallel specialists. The full per-specialist
     detail is in the trace, so we do NOT dump it here (that was the verbosity).
@@ -929,7 +1025,12 @@ def _synthesize(task, results, lang="en"):
               "Answer the question in at most 5 sentences or one small table. Give the "
               "single most likely cause only if relevant. Cite the table.column or "
               "document behind each point. Do NOT repeat the specialists' full text and "
-              "do NOT add extra sections."}],
+              "do NOT add extra sections.\n"
+              "CRITICAL: preserve each result's KIND. A 'genuine null' (tested, no "
+              "significant association), an 'insufficient' result, and a 'not analyzed' "
+              "target are DIFFERENT — never merge them or present a not-analyzed/"
+              "insufficient target as if it were a tested null. If a target was not "
+              "analyzed, say so and suggest re-asking it on its own."}],
             [], _style("You are the lead RCA investigator. Be brief." + answer_lang))
         concl = (r.content or "").strip()
     except Exception:

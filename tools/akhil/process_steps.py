@@ -6,6 +6,8 @@ pure noise). The descriptive table is kept; the *claim* of which step is associa
 with defects is delegated to the shared honest stats core, which flags a step only
 when a per-group test passes (effect size + FDR-adjusted p), else reports no
 significant association."""
+from typing import Any, Optional
+
 import pandas as pd
 from pydantic import BaseModel
 from core.declare import tool
@@ -17,13 +19,16 @@ class ProcessStepArgs(BaseModel):
     table: str = "wafer_defects"
     step_col: str = "process_step"        # categorical grouping column; blank to infer
     defect_col: str = "defect_label"      # binary 0/1 outcome; blank to infer
+    # Optional row scope: {"column": "lot_id", "values": ["LOT_B"]} or a list of these.
+    scope: Optional[Any] = None
 
 
 @tool(
     "compare_process_steps",
     "Compare defect rates across all process steps (e.g. Deposition, Lithography, "
     "Etching, Oxidation, CMP). Returns defect count, total wafers, and defect rate % "
-    "per step, ranked worst to best. Use to identify which production step drives yield loss.",
+    "per step, ranked worst to best. Use to identify which production step drives yield "
+    "loss. Optional scope ({column, values}) restricts to a subset (e.g. one lot).",
     ProcessStepArgs,
     owner="akhil",
     tags=["process", "yield", "defect", "step"],
@@ -33,6 +38,7 @@ def compare_process_steps(
     table="wafer_defects",
     step_col="process_step",
     defect_col="defect_label",
+    scope=None,
 ):
     try:
         cols, rows = datastore.run_sql(f'SELECT * FROM "{table}"')
@@ -42,6 +48,12 @@ def compare_process_steps(
         return f"No rows in '{table}'."
 
     df = pd.DataFrame(rows, columns=cols)
+
+    df, scope_labels, serr = sc.apply_scope(df, scope)
+    if serr:
+        return f"Invalid scope: {serr}."
+    if scope and not len(df):
+        return f"Scope {scope_labels} matched no rows in '{table}'."
 
     # Resolve the contract: a categorical step column + a binary 0/1 outcome.
     oc, err = sc.resolve_outcome(df, defect_col or None)
@@ -64,8 +76,9 @@ def compare_process_steps(
     # The honest verdict: a step is called out ONLY if a per-group test flags it.
     res = sc.group_vs_rest_scan(df, gc, oc)
 
+    scope_str = f"  |  scope: {', '.join(scope_labels)}" if scope_labels else ""
     lines = [
-        f"Process step defect comparison — table: {table}",
+        f"Process step defect comparison — table: {table}{scope_str}",
         f"Total wafers: {len(df)}  |  Overall defect rate: {df[oc].mean() * 100:.2f}%",
         "",
         grp.to_string(index=False),

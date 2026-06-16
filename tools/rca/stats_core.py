@@ -143,13 +143,22 @@ def group_vs_rest_scan(df: pd.DataFrame, group_col: str, outcome_col: str,
                 "n": n_total, "overall_rate": float(work["y"].mean()),
                 "reason": "outcome has zero variance (all one class) — no association is testable"}
 
-    groups = list(work["g"].unique())
-    small = [(str(g), int((work["g"] == g).sum())) for g in groups
-             if int((work["g"] == g).sum()) < min_group_n]
-    if small:
+    # Per-group degeneracy: a single small group must NOT force the whole scan to
+    # 'insufficient'. Drop groups below MIN_GROUP_N, record them as `dropped_groups`,
+    # and test the rest. Only when NOTHING testable remains is the scan degenerate.
+    all_groups = list(work["g"].unique())
+    dropped = [{"group": str(g), "n": int((work["g"] == g).sum())} for g in all_groups
+               if int((work["g"] == g).sum()) < min_group_n]
+    groups = [g for g in all_groups if int((work["g"] == g).sum()) >= min_group_n]
+    if len(groups) < 2:
         return {"kind": KIND_DEGENERATE, "group_col": group_col, "outcome_col": outcome_col,
-                "n": n_total,
-                "reason": f"groups below MIN_GROUP_N={min_group_n}: {small}"}
+                "n": n_total, "dropped_groups": dropped,
+                "reason": (f"fewer than 2 groups have >= MIN_GROUP_N={min_group_n} rows "
+                           f"(dropped: {[d['group'] for d in dropped]})")}
+    # Restrict the working set to the testable groups so rates/p-values are computed
+    # group-vs-(other testable groups), not vs. the degenerate remainder.
+    work = work[work["g"].isin(groups)]
+    n_total = len(work)
 
     overall_rate = float(work["y"].mean())
     rows = []
@@ -190,13 +199,212 @@ def group_vs_rest_scan(df: pd.DataFrame, group_col: str, outcome_col: str,
     family_size = len(rows)
     base = {"group_col": group_col, "outcome_col": outcome_col, "n": n_total,
             "overall_rate": overall_rate, "family_size": family_size,
-            "alpha": alpha, "min_lift": min_lift, "scan": rows}
+            "alpha": alpha, "min_lift": min_lift, "scan": rows,
+            "dropped_groups": dropped}
 
     if flagged:
         return {**base, "kind": KIND_FINDING, "flagged": flagged}
     smallest = min(rows, key=lambda r: r["p_adj"])
     return {**base, "kind": KIND_NULL,
             "smallest_p_adj": smallest["p_adj"], "closest_group": smallest["group"]}
+
+
+# --------------------------------------------------------------------------- #
+# Row scope — a VALIDATED structured filter applied in pandas (never raw SQL).   #
+# --------------------------------------------------------------------------- #
+def apply_scope(df: pd.DataFrame, scope) -> tuple[pd.DataFrame, list[str], str | None]:
+    """Restrict `df` to rows matching a structured scope, injection-safe.
+
+    `scope` is one filter `{"column": str, "values": [...]}` or a LIST of such
+    filters (AND-combined). Column names are validated against df.columns; values
+    are compared as strings against the column's string form, so it works whatever
+    the dtype/schema. Returns (filtered_df, labels, error) where `labels` is a human
+    description of the scope (for the `target` field). `scope=None`/empty => df
+    unchanged, no error.
+    """
+    if not scope:
+        return df, [], None
+    filters = scope if isinstance(scope, list) else [scope]
+    out = df
+    labels = []
+    for f in filters:
+        if not isinstance(f, dict):
+            return df, [], f"invalid scope entry (expected {{column, values}}): {f!r}"
+        col = f.get("column")
+        vals = f.get("values")
+        if not col or col not in df.columns:
+            return df, [], (f"scope column '{col}' not found; available: "
+                            f"{', '.join(map(str, df.columns))}")
+        if vals is None:
+            return df, [], f"scope for '{col}' has no values"
+        vals = vals if isinstance(vals, (list, tuple, set)) else [vals]
+        wanted = {str(v) for v in vals}
+        mask = out[col].astype(str).isin(wanted)
+        out = out[mask]
+        labels.append(f"{col}={'|'.join(map(str, vals))}")
+    return out, labels, None
+
+
+# --------------------------------------------------------------------------- #
+# Within-scope univariate parameter -> outcome driver test                      #
+# (the search confounder_check is NOT: which single parameter is associated     #
+#  with the outcome, over a given row subset.)                                  #
+# --------------------------------------------------------------------------- #
+def _numeric_param_cols(df: pd.DataFrame, outcome_col: str, group_col: str | None,
+                        candidates=None) -> list[str]:
+    """Continuous parameter columns eligible as drivers: numeric, not the outcome,
+    not the grouping column, and not (near-)binary/identifier-like. Schema-agnostic."""
+    if candidates:
+        return [c for c in candidates if c in df.columns]
+    out = []
+    for c in df.columns:
+        if c == outcome_col or c == group_col:
+            continue
+        s = pd.to_numeric(df[c], errors="coerce")
+        if not pd.api.types.is_numeric_dtype(s):
+            continue
+        nun = s.dropna().nunique()
+        if nun < 3:                      # binary/constant -> not a continuous driver
+            continue
+        out.append(c)
+    return out
+
+
+def driver_scan(df: pd.DataFrame, outcome_col: str, params=None, group_col=None,
+                alpha: float | None = None, min_lift: float | None = None,
+                min_group_n: int | None = None) -> dict:
+    """Test which CONTINUOUS parameter is associated with the binary outcome over
+    the rows in `df` (already scoped by the caller). For each candidate parameter we
+    split rows at the median (high vs low half) and run the same 2x2 machinery as
+    group_vs_rest_scan: lift, Wilson CI, two-proportion z / Fisher, BH-FDR across the
+    parameter family. Returns the same `kind` discriminator so callers render a
+    finding / null / insufficient identically.
+
+    Surviving (flagged) parameters that are mutually correlated are then handed to
+    confounder_check so a flagged-but-confounded parameter is demoted honestly.
+    """
+    alpha = cfg.stat_alpha if alpha is None else alpha
+    min_lift = cfg.stat_min_lift if min_lift is None else min_lift
+    min_group_n = cfg.stat_min_group_n if min_group_n is None else min_group_n
+
+    y = pd.to_numeric(df[outcome_col], errors="coerce")
+    base_n = int(y.notna().sum())
+    if base_n < min_group_n:
+        return {"kind": KIND_DEGENERATE, "outcome_col": outcome_col, "n": base_n,
+                "reason": f"only {base_n} usable rows (< MIN_GROUP_N={min_group_n})"}
+    if y.dropna().nunique() < 2:
+        return {"kind": KIND_DEGENERATE, "outcome_col": outcome_col, "n": base_n,
+                "overall_rate": float(y.mean()),
+                "reason": "outcome has zero variance (all one class) — no driver is testable"}
+
+    cand = _numeric_param_cols(df, outcome_col, group_col, params)
+    if not cand:
+        return {"kind": KIND_INCOMPATIBLE, "outcome_col": outcome_col, "n": base_n,
+                "reason": "no continuous parameter columns to test"}
+
+    rows = []
+    for p in cand:
+        x = pd.to_numeric(df[p], errors="coerce")
+        sub = pd.DataFrame({"x": x, "y": y}).dropna()
+        if len(sub) < min_group_n or sub["x"].nunique() < 3 or sub["y"].nunique() < 2:
+            continue
+        med = float(sub["x"].median())
+        hi = sub["x"] > med
+        if hi.sum() < min_group_n or (~hi).sum() < min_group_n:
+            continue
+        succ_hi, n_hi = int(sub.loc[hi, "y"].sum()), int(hi.sum())
+        succ_lo, n_lo = int(sub.loc[~hi, "y"].sum()), int((~hi).sum())
+        rate_hi = succ_hi / n_hi
+        rate_lo = succ_lo / n_lo
+        lift = rate_hi - rate_lo
+        cells = [succ_hi, n_hi - succ_hi, succ_lo, n_lo - succ_lo]
+        if min(cells) < 5:
+            _, p_raw = _sp.fisher_exact([[succ_hi, n_hi - succ_hi],
+                                         [succ_lo, n_lo - succ_lo]])
+            test = "fisher_exact"
+        else:
+            _, p_raw = proportions_ztest([succ_hi, succ_lo], [n_hi, n_lo])
+            test = "two_proportion_z"
+        lo_ci, hi_ci = _wilson_ci(succ_hi, n_hi, alpha)
+        rows.append({"param": p, "split": "median", "threshold": med,
+                     "rate_high": rate_hi, "rate_low": rate_lo,
+                     "ci95_high": [lo_ci, hi_ci], "lift_high_vs_low": lift,
+                     "p_raw": float(p_raw), "test": test})
+
+    if not rows:
+        return {"kind": KIND_DEGENERATE, "outcome_col": outcome_col, "n": base_n,
+                "reason": "no parameter had two halves each >= MIN_GROUP_N to test"}
+
+    p_raws = [r["p_raw"] for r in rows]
+    _, p_adj, _, _ = multipletests(p_raws, alpha=alpha, method="fdr_bh")
+    for r, pa in zip(rows, p_adj):
+        r["p_adj"] = float(pa)
+        r["flagged"] = bool(pa < alpha and abs(r["lift_high_vs_low"]) >= min_lift)
+    rows.sort(key=lambda r: r["p_adj"])
+    flagged = [r for r in rows if r["flagged"]]
+
+    base = {"outcome_col": outcome_col, "n": base_n, "family_size": len(rows),
+            "alpha": alpha, "min_lift": min_lift, "scan": rows, "group_col": group_col}
+
+    if not flagged:
+        smallest = min(rows, key=lambda r: r["p_adj"])
+        return {**base, "kind": KIND_NULL,
+                "smallest_p_adj": smallest["p_adj"], "closest_param": smallest["param"]}
+
+    # Confounder pass: among flagged params, demote any that loses independent
+    # significance against a correlated co-flagged param (reuse confounder_check).
+    verdicts = {r["param"]: "independently predictive" for r in flagged}
+    names = [r["param"] for r in flagged]
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            cc = confounder_check(df, outcome_col, names[i], names[j])
+            if cc.get("kind") == "confounder_result":
+                for v, verdict in cc["verdicts"].items():
+                    if verdict == "confounded — not independently predictive":
+                        verdicts[v] = verdict
+    for r in flagged:
+        r["confounder_verdict"] = verdicts.get(r["param"], "independently predictive")
+    independent = [r for r in flagged if r["confounder_verdict"] == "independently predictive"]
+    return {**base, "kind": KIND_FINDING, "flagged": flagged,
+            "independent": independent}
+
+
+def render_driver(res: dict) -> str:
+    """Render a driver_scan result as concise honest text (mirrors render_scan)."""
+    k = res.get("kind")
+    if k == KIND_INCOMPATIBLE:
+        return f"No driver test possible: {res.get('reason')}."
+    if k == KIND_DEGENERATE:
+        return (f"Insufficient/degenerate data for a within-scope driver test "
+                f"({res.get('reason')}). No driver reported.")
+    oc = res["outcome_col"]
+    scope_note = f" within {res['group_col']}" if res.get("group_col") else ""
+    hdr = (f"Parameter drivers of '{oc}'{scope_note} — n={res['n']}, "
+           f"family={res['family_size']} params (median split, BH-FDR, "
+           f"alpha={res['alpha']}, min_lift={res['min_lift']}):")
+    lines = [hdr]
+    for r in res["scan"]:
+        mark = "  *FLAGGED*" if r.get("flagged") else ""
+        cv = f" [{r['confounder_verdict']}]" if r.get("confounder_verdict") else ""
+        lines.append(
+            f"  {r['param']}: rate_high={r['rate_high']:.3f} vs rate_low={r['rate_low']:.3f}, "
+            f"lift={r['lift_high_vs_low']:+.3f}, p_adj={r['p_adj']:.2e}{mark}{cv}")
+    if k == KIND_FINDING:
+        ind = res.get("independent") or []
+        if ind:
+            names = ", ".join(f"{r['param']} (lift {r['lift_high_vs_low']:+.3f}, "
+                              f"p_adj {r['p_adj']:.2e})" for r in ind)
+            lines.append(f"\nIndependently predictive{scope_note}: {names}. "
+                         "Association only — confirm mechanism before causal claims.")
+        else:
+            lines.append(f"\nParameters passed the test but were demoted as confounded; "
+                         "none is independently predictive.")
+    else:
+        lines.append(
+            f"\nNo parameter independently predictive: none cleared adjusted "
+            f"p<{res['alpha']} AND |lift|>={res['min_lift']}. "
+            f"Smallest adjusted p={res['smallest_p_adj']:.2e} ({res['closest_param']}).")
+    return "\n".join(lines)
 
 
 def confounder_check(df: pd.DataFrame, outcome_col: str, var_a: str, var_b: str,
@@ -287,4 +495,8 @@ def render_scan(res: dict) -> str:
             f"adjusted p<{res['alpha']} AND |lift|>={res['min_lift']}. "
             f"Smallest adjusted p={res['smallest_p_adj']:.2e} ({res['closest_group']}). "
             "No root cause is supported by this data.")
+    dropped = res.get("dropped_groups") or []
+    if dropped:
+        names = ", ".join(f"{d['group']} (n={d['n']})" for d in dropped)
+        lines.append(f"Not tested (below MIN_GROUP_N): {names}.")
     return "\n".join(lines)

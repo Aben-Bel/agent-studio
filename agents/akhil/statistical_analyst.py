@@ -17,6 +17,7 @@ from core.declare import agent
         "yield_persona_support",
         "query_data",
         "correlate_params_vs_yield",
+        "driver_within_scope",
         "compute_summary_stats",
         "detect_outliers",
         "yield_trend",
@@ -25,11 +26,14 @@ from core.declare import agent
         "ask_human",
     ],
     when_to_use="the quantitative-evidence layer: testing which parameter/step is associated "
-                "with the defect outcome, finding outliers, baseline descriptive stats",
+                "with the defect outcome, finding outliers, baseline descriptive stats, AND "
+                "within-group/within-lot questions ('what drives defects INSIDE LOT_B / step X')",
     how_to_use="point it at the loaded table; it returns tested findings with effect size and "
-               "adjusted p, or an explicit 'no significant association' / 'insufficient data'",
-    what_to_use_for="association significance testing, outlier detection, summary statistics, "
-                    "yield trend over the wafer sequence, SPC checks",
+               "adjusted p, or an explicit 'no significant association' / 'insufficient data'. "
+               "For a within-group question, pass a scope {column, values} to confine the test "
+               "to that subset",
+    what_to_use_for="association significance testing, within-scope parameter-driver search, "
+                    "outlier detection, summary statistics, yield trend, SPC checks",
     what_not_to_use_for="numeric/tabular evidence ONLY — does NOT assert domain causes, does "
                         "NOT read FMEA/manuals or wafer-map images; reports association, never causation",
 )
@@ -51,12 +55,20 @@ def statistical_analyst(ctx):
         "flagged groups or an explicit 'no significant association'. Report exactly what "
         "it returns — if it returns a null, say there is no significant association and "
         "name no driver.\n"
-        "4. For each high-correlation parameter, run detect_outliers to find rows that "
+        "4. WITHIN-GROUP / WITHIN-LOT driver questions ('what drives defects INSIDE LOT_B', "
+        "'which parameter matters for the CMP step'): call driver_within_scope with a "
+        "scope that confines the rows, e.g. scope={\"column\": \"lot_id\", \"values\": "
+        "[\"LOT_B\"]}. It runs a within-scope univariate parameter test (median split, FDR, "
+        "Wilson CI) and a confounder pass, returning the independently-predictive driver(s) "
+        "or an explicit null. The SAME scope can be passed to correlate_params_vs_yield and "
+        "parameter_bin_analysis to confine those to the subset too. Discover the real scope "
+        "values from the data (list_data_sources / query_data) — never hardcode lot names.\n"
+        "5. For each high-correlation parameter, run detect_outliers to find rows that "
         "are statistically extreme. Outliers often point to equipment excursions or "
         "data quality issues.\n"
-        "5. Use query_data for custom SQL when you need filtered views — e.g. compare "
+        "6. Use query_data for custom SQL when you need filtered views — e.g. compare "
         "stats between PASS and FAIL lots, or between different process steps.\n"
-        "6. Use ask_human only when the target column is genuinely ambiguous (e.g. "
+        "7. Use ask_human only when the target column is genuinely ambiguous (e.g. "
         "multiple candidate yield columns in the schema).\n\n"
         "DATA-AWARE LOOP (run before trusting any association result):\n"
         "- If correlate_params_vs_yield returns an 'incompatible_data' result, it names the "

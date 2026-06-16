@@ -11,6 +11,8 @@ Contract: ONE categorical grouping column (e.g. process_step) and ONE binary 0/1
 outcome column (e.g. defect_label). Both are arguments resolved at call time — no
 column names are hardcoded; defaults are only fallbacks for the seeded demo table.
 """
+from typing import Any, Optional
+
 import pandas as pd
 from pydantic import BaseModel
 from core.declare import tool
@@ -22,6 +24,9 @@ class CorrelateArgs(BaseModel):
     table: str = "wafer_defects"          # a loaded SQL table
     group_col: str = ""                    # categorical column to test (e.g. process_step); blank = infer
     outcome_col: str = ""                  # binary 0/1 outcome (e.g. defect_label); blank = infer
+    # Optional row scope: {"column": "lot_id", "values": ["LOT_B"]} or a list of these.
+    # Restricts the test to a subset (e.g. one lot) - validated column+values, never SQL.
+    scope: Optional[Any] = None
 
 
 class CorrelateResult(BaseModel):
@@ -38,10 +43,11 @@ class CorrelateResult(BaseModel):
       "Wilson CIs and FDR correction. Returns flagged groups ONLY when a test passes, "
       "otherwise an explicit 'no significant association' or 'insufficient data' result — "
       "it never invents a 'strongest driver'. Args: table, group_col (categorical, blank "
-      "to infer), outcome_col (binary 0/1, blank to infer).",
+      "to infer), outcome_col (binary 0/1, blank to infer), scope (optional "
+      "{column, values} to restrict to a subset, e.g. one lot).",
       CorrelateArgs, returns=CorrelateResult, owner="rca-core", tags=["analysis", "yield", "stats"],
       limits="Reports association, not causation; needs a categorical group + binary 0/1 outcome and enough non-degenerate rows.")
-def correlate_params_vs_yield(table="wafer_defects", group_col="", outcome_col=""):
+def correlate_params_vs_yield(table="wafer_defects", group_col="", outcome_col="", scope=None):
     try:
         cols, rows = datastore.run_sql(f'select * from "{table}"')
     except Exception as e:
@@ -52,6 +58,16 @@ def correlate_params_vs_yield(table="wafer_defects", group_col="", outcome_col="
                 "summary": f"No rows in '{table}'. Upload a defect/process dataset first.",
                 "detail": {}}
     df = pd.DataFrame(rows, columns=cols)
+
+    # Optional row scope (validated column+values; injection-safe).
+    df, scope_labels, serr = sc.apply_scope(df, scope)
+    if serr:
+        return {"kind": sc.KIND_INCOMPATIBLE, "summary": f"Invalid scope: {serr}.",
+                "detail": {"reason": serr}}
+    if scope and not len(df):
+        return {"kind": sc.KIND_INCOMPATIBLE,
+                "summary": f"Scope {scope_labels} matched no rows in '{table}'.",
+                "detail": {"scope": scope_labels}}
 
     # Resolve the contract (typed args first, then inference; ambiguity => structured incompatible).
     oc, err = sc.resolve_outcome(df, outcome_col or None)
